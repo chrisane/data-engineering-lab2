@@ -25,10 +25,34 @@
 #
 # Any rule can carry `severity: WARNING`; the default is ERROR.
 # ERROR failures quarantine the file, WARNING failures do not.
+#
+# Governance (DAMA-DMBOK: Data Governance, Metadata, Data Security)
+#   governance.description             What the source contains
+#   governance.data_owner              Role accountable for the data
+#   governance.data_steward            Role that maintains it day to day and
+#                                      resolves validation failures
+#   governance.system_of_record        Authoritative system the data comes from
+#   governance.classification          One of governance_policy.classification_levels
+#   governance.contains_personal_data  true if it identifies people
+#   governance.personal_data_fields    Columns (or PDF labels) holding personal data
+#   governance.retention_years         How long RAW evidence is kept
+#   governance.update_frequency        How often a new version is expected
 # =========================================================
 
 settings:
   max_failures_per_rule: 500
+
+governance_policy:
+  classification_levels:
+    Public: Approved for release outside the organisation.
+    Internal: For staff use; low impact if disclosed.
+    Confidential: Commercial or financial data; access on a need-to-know basis.
+    Restricted: Personal data or highly sensitive data; strictest access controls.
+  # Classifications that sources containing personal data may use.
+  personal_data_classifications: [Confidential, Restricted]
+  # Retention periods are working assumptions for this training project
+  # and must be confirmed against legal and tax requirements.
+  retention_policy_status: Draft
 
 # Files that are deliberately not ingested.
 ignored_files:
@@ -43,6 +67,15 @@ sources:
   site_master:
     format: xlsx
     path: site_master.xlsx
+    governance:
+      description: Head office, distribution centre and branch locations.
+      data_owner: Head of Operations (Operations)
+      data_steward: Master Data Steward (Operations)
+      system_of_record: ERP
+      classification: Internal
+      contains_personal_data: false
+      retention_years: 5
+      update_frequency: On change
     structure:
       sheet: Sheet1
       required_columns: [site_id, site_name, town, site_type]
@@ -57,6 +90,15 @@ sources:
   department_master:
     format: xlsx
     path: department_master.xlsx
+    governance:
+      description: Organisational departments.
+      data_owner: Head of Human Resources (Human Resources)
+      data_steward: HR Administrator (Human Resources)
+      system_of_record: ERP
+      classification: Internal
+      contains_personal_data: false
+      retention_years: 5
+      update_frequency: On change
     structure:
       sheet: Sheet1
       required_columns: [department_id, department_name]
@@ -69,6 +111,15 @@ sources:
   product_master:
     format: xlsx
     path: product_master.xlsx
+    governance:
+      description: Products, categories, standard cost and selling price.
+      data_owner: Procurement Manager (Procurement)
+      data_steward: Master Data Steward (Procurement)
+      system_of_record: ERP
+      classification: Internal
+      contains_personal_data: false
+      retention_years: 5
+      update_frequency: On change
     structure:
       sheet: Sheet1
       required_columns:
@@ -98,6 +149,15 @@ sources:
   supplier_master:
     format: xlsx
     path: supplier_master.xlsx
+    governance:
+      description: Suppliers, minimum order values, rebate rates and payment terms.
+      data_owner: Procurement Manager (Procurement)
+      data_steward: Supplier Master Data Steward (Procurement)
+      system_of_record: ERP
+      classification: Confidential
+      contains_personal_data: false
+      retention_years: 7
+      update_frequency: On change
     structure:
       sheet: Sheet1
       required_columns:
@@ -131,6 +191,15 @@ sources:
   product_supplier:
     format: xlsx
     path: product_supplier.xlsx
+    governance:
+      description: Approved suppliers per product and their unit costs.
+      data_owner: Procurement Manager (Procurement)
+      data_steward: Supplier Master Data Steward (Procurement)
+      system_of_record: ERP
+      classification: Confidential
+      contains_personal_data: false
+      retention_years: 5
+      update_frequency: On change
     structure:
       sheet: Sheet1
       required_columns: [product_id, supplier_id, supplier_unit_cost]
@@ -147,6 +216,17 @@ sources:
   customer_master:
     format: xlsx
     path: customer_master.xlsx
+    governance:
+      description: Retail and business customers with credit limits.
+      data_owner: Head of Sales (Sales)
+      data_steward: Customer Data Steward (Sales)
+      system_of_record: ERP
+      classification: Restricted
+      contains_personal_data: true
+      personal_data_fields: [customer_name, town]
+      personal_data_note: Retail customers are private individuals.
+      retention_years: 5
+      update_frequency: Daily
     structure:
       sheet: Sheet1
       required_columns: [customer_id, customer_name, customer_type, town, credit_limit]
@@ -167,6 +247,15 @@ sources:
   purchase_orders:
     format: xlsx
     path: purchase_orders.xlsx
+    governance:
+      description: Purchase order headers raised by the distribution centre.
+      data_owner: Procurement Manager (Procurement)
+      data_steward: Procurement Officer (Procurement)
+      system_of_record: ERP
+      classification: Confidential
+      contains_personal_data: false
+      retention_years: 7
+      update_frequency: Daily
     structure:
       sheet: Sheet1
       required_columns: [po_id, supplier_id, po_date, delivery_site_id, po_value, status]
@@ -198,6 +287,15 @@ sources:
   purchase_order_lines:
     format: xlsx
     path: purchase_order_lines.xlsx
+    governance:
+      description: Products, quantities and costs per purchase order.
+      data_owner: Procurement Manager (Procurement)
+      data_steward: Procurement Officer (Procurement)
+      system_of_record: ERP
+      classification: Confidential
+      contains_personal_data: false
+      retention_years: 7
+      update_frequency: Daily
     structure:
       sheet: Sheet1
       required_columns: [po_id, product_id, quantity, unit_cost, line_value]
@@ -221,6 +319,15 @@ sources:
   goods_receipts:
     format: xlsx
     path: goods_receipts.xlsx
+    governance:
+      description: Goods received against purchase orders.
+      data_owner: Warehouse Manager (Warehousing)
+      data_steward: Receiving Supervisor (Warehousing)
+      system_of_record: ERP
+      classification: Internal
+      contains_personal_data: false
+      retention_years: 7
+      update_frequency: Daily
     structure:
       sheet: Sheet1
       required_columns: [grn_id, po_id, supplier_id, receipt_date, site_id]
@@ -236,6 +343,15 @@ sources:
   supplier_invoices:
     format: xlsx
     path: supplier_invoices.xlsx
+    governance:
+      description: Accounts payable supplier invoices.
+      data_owner: Financial Controller (Finance)
+      data_steward: Accounts Payable Clerk (Finance)
+      system_of_record: ERP
+      classification: Confidential
+      contains_personal_data: false
+      retention_years: 7
+      update_frequency: Daily
     structure:
       sheet: Sheet1
       required_columns:
@@ -266,6 +382,15 @@ sources:
   supplier_rebates:
     format: xlsx
     path: supplier_rebates.xlsx
+    governance:
+      description: Quarterly supplier rebates earned on qualifying spend.
+      data_owner: Financial Controller (Finance)
+      data_steward: Procurement Officer (Procurement)
+      system_of_record: ERP
+      classification: Confidential
+      contains_personal_data: false
+      retention_years: 7
+      update_frequency: Quarterly
     structure:
       sheet: Sheet1
       required_columns: [supplier_id, period, qualifying_spend, rebate_rate, rebate_amount]
@@ -296,6 +421,17 @@ sources:
   sales_transactions:
     format: xlsx
     path: sales_transactions.xlsx
+    governance:
+      description: Branch sales headers with payment method and totals.
+      data_owner: Head of Sales (Sales)
+      data_steward: Sales Data Analyst (Sales)
+      system_of_record: POS
+      classification: Confidential
+      contains_personal_data: true
+      personal_data_fields: [customer_id]
+      personal_data_note: customer_id identifies a person when joined to customer_master.
+      retention_years: 7
+      update_frequency: Daily
     structure:
       sheet: Sheet1
       required_columns:
@@ -326,6 +462,15 @@ sources:
   sales_lines:
     format: xlsx
     path: sales_lines.xlsx
+    governance:
+      description: Products, quantities and prices per sale.
+      data_owner: Head of Sales (Sales)
+      data_steward: Sales Data Analyst (Sales)
+      system_of_record: POS
+      classification: Confidential
+      contains_personal_data: false
+      retention_years: 7
+      update_frequency: Daily
     structure:
       sheet: Sheet1
       required_columns: [sale_id, product_id, quantity, unit_price, line_net, unit_cost]
@@ -350,6 +495,15 @@ sources:
   inventory_movements:
     format: xlsx
     path: inventory_movements.xlsx
+    governance:
+      description: Stock receipts and sales movements per site and product.
+      data_owner: Warehouse Manager (Warehousing)
+      data_steward: Inventory Controller (Warehousing)
+      system_of_record: ERP
+      classification: Internal
+      contains_personal_data: false
+      retention_years: 7
+      update_frequency: Daily
     structure:
       sheet: Sheet1
       required_columns:
@@ -376,6 +530,15 @@ sources:
   operating_expenses:
     format: xlsx
     path: operating_expenses.xlsx
+    governance:
+      description: Rent, utilities, connectivity and other operating costs per site.
+      data_owner: Financial Controller (Finance)
+      data_steward: Accounts Payable Clerk (Finance)
+      system_of_record: ERP
+      classification: Confidential
+      contains_personal_data: false
+      retention_years: 7
+      update_frequency: Monthly
     structure:
       sheet: Sheet1
       required_columns: [expense_id, expense_date, site_id, expense_type, description, amount]
@@ -393,6 +556,15 @@ sources:
   general_ledger:
     format: xlsx
     path: general_ledger.xlsx
+    governance:
+      description: General ledger journal lines derived from source transactions.
+      data_owner: Chief Financial Officer (Finance)
+      data_steward: General Ledger Accountant (Finance)
+      system_of_record: ERP
+      classification: Confidential
+      contains_personal_data: false
+      retention_years: 7
+      update_frequency: Daily
     structure:
       sheet: Sheet1
       required_columns:
@@ -432,6 +604,15 @@ sources:
   fixed_assets_erp:
     format: xlsx
     path: fixed_assets_erp.xlsx
+    governance:
+      description: Capitalised assets with cost, depreciation and net book value.
+      data_owner: Financial Controller (Finance)
+      data_steward: Fixed Asset Accountant (Finance)
+      system_of_record: ERP
+      classification: Confidential
+      contains_personal_data: false
+      retention_years: 7
+      update_frequency: Monthly
     structure:
       sheet: Sheet1
       required_columns:
@@ -476,6 +657,17 @@ sources:
   branch_local_assets:
     format: xlsx
     path: branch_local_assets.xlsx
+    governance:
+      description: Small assets below the capitalisation threshold, kept by branches.
+      data_owner: Head of Operations (Operations)
+      data_steward: Branch Administrator (Operations)
+      system_of_record: Branch Excel registers
+      classification: Confidential
+      contains_personal_data: true
+      personal_data_fields: [assigned_to]
+      personal_data_note: assigned_to holds employee names.
+      retention_years: 5
+      update_frequency: Monthly
     structure:
       sheet: Sheet1
       required_columns:
@@ -497,6 +689,17 @@ sources:
   branch_cashup:
     format: pdf
     path: cashups/*.pdf
+    governance:
+      description: End-of-shift branch cash-up reports.
+      data_owner: Head of Operations (Operations)
+      data_steward: Cash Office Supervisor (Finance)
+      system_of_record: POS cash-up reports (PDF)
+      classification: Confidential
+      contains_personal_data: true
+      personal_data_fields: [Cashier, Cashier Signature]
+      personal_data_note: Cashier names and signatures identify employees.
+      retention_years: 7
+      update_frequency: Per shift
     structure:
       filename_pattern: '^S\d{3}_SHIFT-\d{6}_\d{8}_Cashup\.pdf$'
       required_labels:
@@ -514,5 +717,6 @@ sources:
         - Expected Closing Cash
         - Actual Closing Cash
         - Variance
+        - Cashier Signature
         - Manager Approval
     # Field extraction and value rules arrive with Phase 6 (PDF extraction).

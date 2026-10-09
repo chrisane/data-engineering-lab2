@@ -349,6 +349,29 @@ The scripts exit with code 1 when any file fails, so they can be chained in a sc
 python -m pytest tests
 ```
 
+### Run the whole pipeline with a status board
+
+Double-click `run_pipeline.bat` (or run it from a terminal). It opens a separate window that runs data generation, ingestion, structural validation, data validation and the tests in order. Each step shows its exit code, duration and a colour-coded status: green **SUCCESS**, yellow **WARNING**, red **FAILED** or **ERROR**, and grey **SKIPPED**. The SQL step is shown as skipped until it is implemented.
+
+```powershell
+.\run_pipeline.bat                 # asks whether to generate new data
+.\run_pipeline.bat --regenerate    # regenerate without asking
+.\run_pipeline.bat --keep-data     # keep the existing data without asking
+.\run_pipeline.bat --skip-tests
+```
+
+If synthetic data already exists, the pipeline asks whether to generate new data (the default is no). New data is ingested as a new batch.
+
+**Cancelling:** press `Ctrl+C` at any time. While a step is running you can choose to:
+
+- `w`: wait for the step to finish, then stop (the default and the safest choice)
+- `s`: stop the step immediately
+- `c`: continue
+
+Steps that did not run are shown as **CANCELLED**. Generated data, RAW copies, quarantine copies and migrated logs are written to a temporary file first and swapped in only when complete, so stopping a step never leaves a half-written file behind.
+
+The pipeline exits with 0 (success), 1 (warnings), 2 (failure) or 130 (cancelled). The full output of each step is saved to `logs/pipeline_<timestamp>.log`.
+
 **Current limitation:** Ingestion and validation are run as separate scripts; automated orchestration is planned for Phase 5. PDF field extraction and cash-up reconciliation are planned for Phase 6.
 
 ## 9. Development Roadmap
@@ -382,6 +405,21 @@ The platform follows these guiding principles:
 - **Data quality by design:** Validate data before it becomes trusted reporting information.
 - **Maintainability:** Code and documentation should support straightforward troubleshooting and handover.
 - **Business alignment:** Technical controls must support defined business and accounting rules.
+
+### Governance metadata
+
+Every source in `config/source_registry.yaml` has a `governance` block recording:
+
+- a description of the source
+- its data owner (the role accountable for it) and data steward (the role that fixes failures)
+- its system of record
+- its classification (Public, Internal, Confidential or Restricted)
+- whether it contains personal data, and in which fields
+- its retention period and expected update frequency
+
+Sources that contain personal data (customers, the employees in branch asset registers, and cashiers on cash-up reports) must be classified Confidential or Restricted.
+
+The data steward is named whenever a file is quarantined and is recorded in `logs/validation_file_status.csv`. The automated tests fail if any source is missing governance metadata or declares it inconsistently. Retention periods are draft assumptions that still need to be confirmed against legal and tax requirements.
 
 ## 11. Project Success Criteria
 

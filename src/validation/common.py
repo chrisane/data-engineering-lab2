@@ -88,6 +88,7 @@ FILE_STATUS_FIELDS = [
     "errors",
     "warnings",
     "quarantine_path",
+    "data_steward",
     "validated_at",
 ]
 
@@ -364,7 +365,11 @@ def ensure_csv_schema(
             f"Cannot migrate {path}: unrecognised column layout."
         )
 
-    with open(path, "w", newline="", encoding="utf-8") as log_file:
+    # Write the migrated log in full, then swap it in, so an
+    # interruption can never leave a truncated log.
+    temporary = path.with_name(path.name + ".partial")
+
+    with open(temporary, "w", newline="", encoding="utf-8") as log_file:
 
         writer = csv.DictWriter(
             log_file,
@@ -376,6 +381,8 @@ def ensure_csv_schema(
 
         for row in data:
             writer.writerow(dict(zip(old_fields, row)))
+
+    temporary.replace(path)
 
 
 def append_csv_rows(
@@ -435,6 +442,7 @@ def write_file_status(
     results: list[dict],
     rows_checked: int | None = None,
     quarantine_path: Path | None = None,
+    data_steward: str | None = None,
 ) -> None:
 
     errors, warnings = count_by_severity(results)
@@ -455,9 +463,18 @@ def write_file_status(
                 quarantine_path.relative_to(PROJECT_ROOT).as_posix()
                 if quarantine_path else None
             ),
+            "data_steward": data_steward,
             "validated_at": datetime.now().isoformat(timespec="seconds"),
         }],
     )
+
+
+def data_steward(source_registry: dict, source: str) -> str | None:
+    """The role responsible for resolving this source's failures."""
+
+    governance = source_registry.get(source, {}).get("governance") or {}
+
+    return governance.get("data_steward")
 
 
 # ---------------------------------------------------------
@@ -490,7 +507,9 @@ def quarantine_file(
         exist_ok=True,
     )
 
-    shutil.copy2(file, destination)
+    temporary = destination.with_name(destination.name + ".partial")
+    shutil.copy2(file, temporary)
+    temporary.replace(destination)
 
     failures = [
         result

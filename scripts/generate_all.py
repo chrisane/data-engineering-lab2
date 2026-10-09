@@ -1,5 +1,6 @@
 from pathlib import Path
 import random
+import shutil
 from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
@@ -14,6 +15,12 @@ Faker.seed(SEED)
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "data" / "incoming"
 OUT.mkdir(parents=True, exist_ok=True)
+# Files are written here first and moved into OUT only when all are
+# complete, so a cancelled run never leaves half-written workbooks.
+# It sits outside data/incoming so ingestion never picks it up.
+STAGING = ROOT / "data" / ".generating"
+shutil.rmtree(STAGING, ignore_errors=True)
+STAGING.mkdir(parents=True)
 
 START = pd.Timestamp("2026-01-01")
 END = pd.Timestamp("2026-12-31")
@@ -288,7 +295,7 @@ datasets = {
  "inventory_movements.xlsx":inventory_movements_df, "general_ledger.xlsx":gl_df,
 }
 for name,df in datasets.items():
-    df.to_excel(OUT/name,index=False)
+    df.to_excel(STAGING/name,index=False)
 
 # ---------- VALIDATION ----------
 checks = {
@@ -306,7 +313,12 @@ checks = {
  )),
  "duplicate_asset_ids":int(assets_df.asset_id.duplicated().sum()),
 }
-pd.DataFrame([checks]).to_excel(OUT/"generation_validation.xlsx",index=False)
+pd.DataFrame([checks]).to_excel(STAGING/"generation_validation.xlsx",index=False)
+
+# All files written: move them into place together.
+for staged in STAGING.iterdir():
+    staged.replace(OUT/staged.name)
+STAGING.rmdir()
 
 print("Retail Data Platform v2 synthetic data generated.")
 for k,v in checks.items():

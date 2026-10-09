@@ -118,7 +118,11 @@ def upgrade_manifest_header() -> None:
 
     lines[0] = ",".join(MANIFEST_FIELDS) + "\n"
 
-    MANIFEST_FILE.write_text("".join(lines), encoding="utf-8")
+    # Write a complete copy, then swap it in, so an interrupted
+    # upgrade can never leave a truncated manifest.
+    temporary = MANIFEST_FILE.with_name(MANIFEST_FILE.name + ".partial")
+    temporary.write_text("".join(lines), encoding="utf-8")
+    temporary.replace(MANIFEST_FILE)
 
 
 def append_csv_row(
@@ -339,10 +343,16 @@ def copy_preserving_path(
         exist_ok=True,
     )
 
+    # Copy under a temporary name and rename when complete, so an
+    # interrupted copy never looks like a finished file.
+    temporary = destination.with_name(destination.name + ".partial")
+
     shutil.copy2(
         file,
-        destination,
+        temporary,
     )
+
+    temporary.replace(destination)
 
     return destination
 
@@ -427,6 +437,11 @@ def process_file(
             message = reason
 
     if status in REJECTED_STATUSES:
+
+        steward = (source_registry[source].get("governance") or {}).get("data_steward")
+
+        if steward:
+            message += f" Notify: {steward}."
 
         quarantine_path = copy_preserving_path(
             file,

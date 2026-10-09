@@ -101,6 +101,24 @@ def test_renamed_non_excel_file_is_rejected_and_quarantined(pipeline, tmp_path):
     assert not (tmp_path / "raw").exists()
 
 
+def test_rejection_message_names_the_data_steward(pipeline):
+
+    registry = {
+        "supplier_master": {
+            **REGISTRY["supplier_master"],
+            "governance": {"data_steward": "Supplier Master Data Steward (Procurement)"},
+        },
+    }
+
+    file = pipeline / "supplier_master.xlsx"
+    file.write_bytes(b"not a workbook")
+
+    outcome = discover_files.process_file(file, "ING-1", registry, [], {})
+
+    assert outcome["status"] == "INVALID_CONTENT"
+    assert "Notify: Supplier Master Data Steward (Procurement)." in outcome["message"]
+
+
 def test_empty_file_is_rejected(pipeline):
 
     file = pipeline / "supplier_master.xlsx"

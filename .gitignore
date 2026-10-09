@@ -13,6 +13,7 @@ __pycache__/
 # ---------------------------------------------------------
 data/incoming/*.xlsx
 data/incoming/*.csv
+data/.generating/
 
 # The cash-up PDFs have no generator in this repo yet, so they
 # stay under version control as the PDF test batch.

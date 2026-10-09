@@ -33,6 +33,7 @@ from pypdf import PdfReader
 
 from common import (
     PROJECT_ROOT,
+    data_steward,
     is_blank,
     load_source_registry,
     make_result,
@@ -820,6 +821,7 @@ def main() -> int:
             results=results,
             rows_checked=validation["row_count"],
             quarantine_path=quarantine_path,
+            data_steward=data_steward(source_registry, source),
         )
 
         status_counts[validation["status"]] += 1
@@ -849,6 +851,7 @@ def main() -> int:
 
         if quarantine_path:
             print(f"   Quarantined: {quarantine_path.relative_to(PROJECT_ROOT)}")
+            print(f"   Notify:      {data_steward(source_registry, source) or 'no steward registered'}")
 
     print("\nVALIDATION SUMMARY")
     print("--------------------------------------------")

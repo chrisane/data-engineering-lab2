@@ -40,6 +40,7 @@ from common import (
     CONFIG_DIR,
     DEFAULT_MAX_FAILURES_PER_RULE,
     PROJECT_ROOT,
+    data_steward,
     is_blank,
     latest_raw_file_for_source,
     load_settings,
@@ -1355,6 +1356,7 @@ def main() -> int:
             results=results,
             rows_checked=validation["rows_checked"],
             quarantine_path=quarantine_path,
+            data_steward=data_steward(source_registry, source),
         )
 
         status_counts[validation["status"]] += 1
@@ -1363,6 +1365,7 @@ def main() -> int:
 
         if quarantine_path:
             print(f"   Quarantined: {quarantine_path.relative_to(PROJECT_ROOT)}")
+            print(f"   Notify:      {data_steward(source_registry, source) or 'no steward registered'}")
 
     print("\nVALIDATION SUMMARY")
     print("--------------------------------------------")
