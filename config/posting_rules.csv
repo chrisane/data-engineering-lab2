@@ -1,0 +1,22 @@
+transaction_type,debit_account,credit_account,description
+CASH_SALE,1000,4000,Recognise cash sale net of VAT
+CASH_SALE_VAT,1000,2030,Recognise output VAT on cash sale
+CARD_SALE,1010,4000,Recognise card sale net of VAT
+CARD_SALE_VAT,1010,2030,Recognise output VAT on card sale
+CREDIT_SALE,1100,4000,Recognise credit sale net of VAT
+CREDIT_SALE_VAT,1100,2030,Recognise output VAT on credit sale
+COGS,5000,1200,Recognise cost of merchandise sold
+PURCHASE_INVOICE,1200,2000,Recognise inventory supplier invoice net of VAT
+PURCHASE_VAT,1400,2000,Recognise input VAT
+SUPPLIER_PAYMENT,2000,1010,Pay supplier
+CUSTOMER_RECEIPT,1010,1100,Receive customer payment
+RENT,6100,1010,Pay rent
+UTILITY,6110,1010,Pay electricity and water
+CONNECTIVITY,6120,1010,Pay connectivity expense
+FUEL,6130,1010,Pay fuel expense
+PAYROLL,6000,1020,Pay salaries
+ASSET_PURCHASE,1520,2000,Capital asset purchase
+DEPRECIATION,6300,1590,Monthly depreciation
+REBATE_ACCRUAL,2050,4200,Accrue supplier rebate earned
+REBATE_RECEIPT,1010,2050,Receive supplier rebate
+STOCK_WRITE_OFF,5020,1200,Write off inventory

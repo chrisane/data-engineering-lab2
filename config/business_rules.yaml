@@ -1,0 +1,65 @@
+company:
+  name: Nawa Retail Group
+  currency: NAD
+  financial_year_start_month: 1
+  vat_rate: 0.15
+
+operations:
+  branch_count: 12
+  distribution_centres: 1
+  head_office: 1
+  branch_replenishment:
+    reorder_trigger_pct: 0.35
+    target_stock_pct: 0.85
+  central_distribution:
+    stocked_categories:
+      - Grocery
+      - Household
+      - Beverages
+      - Personal Care
+      - Stationery
+    direct_supplier_categories:
+      - Specialized Equipment
+      - Local Specialty
+  supplier_minimum_order_value:
+    enabled: true
+    min_nad: 5000
+    max_nad: 50000
+  rebates:
+    enabled: true
+    quarterly_thresholds:
+      - threshold: 250000
+        rate: 0.01
+      - threshold: 500000
+        rate: 0.02
+      - threshold: 1000000
+        rate: 0.035
+
+inventory:
+  allow_negative_stock: false
+  valuation_method: weighted_average
+  stock_adjustments_require_reason: true
+  intersite_transfers_use_transfer_document: true
+
+assets:
+  erp_capitalisation_threshold_nad: 10000
+  depreciation_method: straight_line
+  major_asset_classes:
+    Vehicles: 5
+    Computer Hardware: 3
+    Servers and Network Equipment: 4
+    Machinery and Equipment: 5
+    Furniture and Fittings: 6
+  local_register_examples:
+    - Chairs
+    - Tables
+    - Bookcases
+    - CCTV components
+    - Small IT peripherals
+  unique_erp_asset_number: true
+
+finance:
+  double_entry_required: true
+  posting_period_must_be_open: true
+  journal_must_balance: true
+  source_transaction_reference_required: true

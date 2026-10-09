@@ -1,0 +1,518 @@
+# =========================================================
+# SOURCE REGISTRY
+# ---------------------------------------------------------
+# One contract per source. Ingestion uses `format` and `path`.
+# Validation uses `structure`, `data_rules` and `business_rules`.
+#
+# Rule reference
+#   structure.sheet             Worksheet that holds the data (xlsx)
+#   structure.required_columns  Columns that must exist in the header row
+#   structure.record_key        Fields used to identify a record in errors
+#   structure.minimum_rows      Minimum number of data rows (default 1)
+#
+#   data_rules.required_values  Fields that may not be blank
+#   data_rules.unique           Business keys; a list entry may itself be a
+#                               list to define a composite key
+#   data_rules.numeric          field: {minimum, maximum, integer}
+#   data_rules.dates            Fields that must hold valid dates
+#   data_rules.allowed_values   field: [permitted values]
+#   data_rules.patterns         field: regular expression
+#   data_rules.references       field: {source, field} or {config, field}
+#
+#   business_rules.calculations  field must equal formula (+ - * / only)
+#   business_rules.comparisons   field <operator> value | other_field | lookup
+#   business_rules.group_balance debit and credit totals must match per group
+#
+# Any rule can carry `severity: WARNING`; the default is ERROR.
+# ERROR failures quarantine the file, WARNING failures do not.
+# =========================================================
+
+settings:
+  max_failures_per_rule: 500
+
+# Files that are deliberately not ingested.
+ignored_files:
+  - generation_validation.xlsx   # Synthetic data generator QA output
+
+sources:
+
+  # -------------------------------------------------------
+  # MASTER DATA
+  # -------------------------------------------------------
+
+  site_master:
+    format: xlsx
+    path: site_master.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns: [site_id, site_name, town, site_type]
+    data_rules:
+      required_values: [site_id, site_name, site_type]
+      unique: [site_id]
+      patterns:
+        site_id: '^(HO|DC|BR)\d{3}$'
+      allowed_values:
+        site_type: [HEAD_OFFICE, DISTRIBUTION_CENTRE, BRANCH]
+
+  department_master:
+    format: xlsx
+    path: department_master.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns: [department_id, department_name]
+    data_rules:
+      required_values: [department_id, department_name]
+      unique: [department_id]
+      patterns:
+        department_id: '^D\d{3}$'
+
+  product_master:
+    format: xlsx
+    path: product_master.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns:
+        [product_id, product_name, category, standard_cost, selling_price, dc_stocked]
+    data_rules:
+      required_values: [product_id, product_name, category, standard_cost, selling_price]
+      unique: [product_id]
+      patterns:
+        product_id: '^P\d{5}$'
+      allowed_values:
+        category:
+          [Grocery, Beverages, Household, Personal Care, Stationery,
+           Specialized Equipment, Local Specialty]
+        dc_stocked: [true, false]
+      numeric:
+        standard_cost: {minimum: 0}
+        selling_price: {minimum: 0}
+    business_rules:
+      comparisons:
+        - name: SELLING_PRICE_ABOVE_COST
+          field: selling_price
+          operator: ">="
+          other_field: standard_cost
+          severity: WARNING
+          recommended_action: Review the product's pricing; it sells below standard cost.
+
+  supplier_master:
+    format: xlsx
+    path: supplier_master.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns:
+        - supplier_id
+        - supplier_name
+        - location
+        - minimum_order_value_nad
+        - rebate_rate
+        - payment_terms_days
+    data_rules:
+      required_values:
+        - supplier_id
+        - supplier_name
+        - minimum_order_value_nad
+      unique:
+        - supplier_id
+      patterns:
+        supplier_id: '^SUP\d{4}$'
+      numeric:
+        # Range from business_rules.yaml -> supplier_minimum_order_value
+        minimum_order_value_nad:
+          minimum: 5000
+          maximum: 50000
+        rebate_rate:
+          minimum: 0
+          maximum: 1
+        payment_terms_days:
+          minimum: 0
+          integer: true
+
+  product_supplier:
+    format: xlsx
+    path: product_supplier.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns: [product_id, supplier_id, supplier_unit_cost]
+    data_rules:
+      required_values: [product_id, supplier_id, supplier_unit_cost]
+      unique:
+        - [product_id, supplier_id]
+      numeric:
+        supplier_unit_cost: {minimum: 0}
+      references:
+        product_id: {source: product_master, field: product_id}
+        supplier_id: {source: supplier_master, field: supplier_id}
+
+  customer_master:
+    format: xlsx
+    path: customer_master.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns: [customer_id, customer_name, customer_type, town, credit_limit]
+    data_rules:
+      required_values: [customer_id, customer_name, customer_type]
+      unique: [customer_id]
+      patterns:
+        customer_id: '^CUST\d{5}$'
+      allowed_values:
+        customer_type: [RETAIL, BUSINESS]
+      numeric:
+        credit_limit: {minimum: 0}
+
+  # -------------------------------------------------------
+  # PROCUREMENT
+  # -------------------------------------------------------
+
+  purchase_orders:
+    format: xlsx
+    path: purchase_orders.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns: [po_id, supplier_id, po_date, delivery_site_id, po_value, status]
+    data_rules:
+      required_values: [po_id, supplier_id, po_date, delivery_site_id, po_value, status]
+      unique: [po_id]
+      dates: [po_date]
+      allowed_values:
+        status: [DRAFT, APPROVED, RECEIVED, CLOSED, CANCELLED]
+      numeric:
+        po_value: {minimum: 0}
+      references:
+        supplier_id: {source: supplier_master, field: supplier_id}
+        delivery_site_id: {source: site_master, field: site_id}
+    business_rules:
+      comparisons:
+        - name: SUPPLIER_MINIMUM_ORDER_VALUE
+          field: po_value
+          operator: ">="
+          lookup:
+            source: supplier_master
+            key: supplier_id
+            source_key: supplier_id
+            field: minimum_order_value_nad
+          recommended_action: >-
+            Increase the order to the supplier's minimum order value or
+            cancel the purchase order.
+
+  purchase_order_lines:
+    format: xlsx
+    path: purchase_order_lines.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns: [po_id, product_id, quantity, unit_cost, line_value]
+    data_rules:
+      required_values: [po_id, product_id, quantity, unit_cost, line_value]
+      unique:
+        - [po_id, product_id]
+      numeric:
+        quantity: {minimum: 1, integer: true}
+        unit_cost: {minimum: 0}
+        line_value: {minimum: 0}
+      references:
+        po_id: {source: purchase_orders, field: po_id}
+        product_id: {source: product_master, field: product_id}
+    business_rules:
+      calculations:
+        - field: line_value
+          formula: quantity * unit_cost
+          tolerance: 0.01
+
+  goods_receipts:
+    format: xlsx
+    path: goods_receipts.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns: [grn_id, po_id, supplier_id, receipt_date, site_id]
+    data_rules:
+      required_values: [grn_id, po_id, supplier_id, receipt_date, site_id]
+      unique: [grn_id]
+      dates: [receipt_date]
+      references:
+        po_id: {source: purchase_orders, field: po_id}
+        supplier_id: {source: supplier_master, field: supplier_id}
+        site_id: {source: site_master, field: site_id}
+
+  supplier_invoices:
+    format: xlsx
+    path: supplier_invoices.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns:
+        [invoice_id, po_id, supplier_id, invoice_date, net_amount, vat_amount, total_amount, status]
+    data_rules:
+      required_values:
+        [invoice_id, po_id, supplier_id, invoice_date, net_amount, vat_amount, total_amount, status]
+      unique: [invoice_id]
+      dates: [invoice_date]
+      allowed_values:
+        status: [OPEN, PAID, PARTIALLY_PAID, CANCELLED]
+      numeric:
+        net_amount: {minimum: 0}
+        vat_amount: {minimum: 0}
+        total_amount: {minimum: 0}
+      references:
+        po_id: {source: purchase_orders, field: po_id}
+        supplier_id: {source: supplier_master, field: supplier_id}
+    business_rules:
+      calculations:
+        - field: vat_amount
+          formula: net_amount * 0.15
+          tolerance: 0.01
+        - field: total_amount
+          formula: net_amount + vat_amount
+          tolerance: 0.01
+
+  supplier_rebates:
+    format: xlsx
+    path: supplier_rebates.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns: [supplier_id, period, qualifying_spend, rebate_rate, rebate_amount]
+    data_rules:
+      required_values: [supplier_id, period, qualifying_spend, rebate_rate, rebate_amount]
+      unique:
+        - [supplier_id, period]
+      patterns:
+        period: '^\d{4}-Q[1-4]$'
+      # Rates from business_rules.yaml -> rebates.quarterly_thresholds
+      allowed_values:
+        rebate_rate: [0, 0.01, 0.02, 0.035]
+      numeric:
+        qualifying_spend: {minimum: 0}
+        rebate_amount: {minimum: 0}
+      references:
+        supplier_id: {source: supplier_master, field: supplier_id}
+    business_rules:
+      calculations:
+        - field: rebate_amount
+          formula: qualifying_spend * rebate_rate
+          tolerance: 0.01
+
+  # -------------------------------------------------------
+  # SALES AND INVENTORY
+  # -------------------------------------------------------
+
+  sales_transactions:
+    format: xlsx
+    path: sales_transactions.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns:
+        [sale_id, sale_date, site_id, customer_id, payment_method, net_amount, vat_amount, total_amount]
+    data_rules:
+      required_values:
+        [sale_id, sale_date, site_id, payment_method, net_amount, vat_amount, total_amount]
+      unique: [sale_id]
+      dates: [sale_date]
+      allowed_values:
+        payment_method: [CASH, CARD, CREDIT]
+      numeric:
+        net_amount: {minimum: 0}
+        vat_amount: {minimum: 0}
+        total_amount: {minimum: 0}
+      references:
+        site_id: {source: site_master, field: site_id}
+        customer_id: {source: customer_master, field: customer_id}
+    business_rules:
+      calculations:
+        - field: vat_amount
+          formula: net_amount * 0.15
+          tolerance: 0.01
+        - field: total_amount
+          formula: net_amount + vat_amount
+          tolerance: 0.01
+
+  sales_lines:
+    format: xlsx
+    path: sales_lines.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns: [sale_id, product_id, quantity, unit_price, line_net, unit_cost]
+    data_rules:
+      required_values: [sale_id, product_id, quantity, unit_price, line_net, unit_cost]
+      unique:
+        - [sale_id, product_id]
+      numeric:
+        quantity: {minimum: 1, integer: true}
+        unit_price: {minimum: 0}
+        line_net: {minimum: 0}
+        unit_cost: {minimum: 0}
+      references:
+        sale_id: {source: sales_transactions, field: sale_id}
+        product_id: {source: product_master, field: product_id}
+    business_rules:
+      calculations:
+        - field: line_net
+          formula: quantity * unit_price
+          tolerance: 0.01
+
+  inventory_movements:
+    format: xlsx
+    path: inventory_movements.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns:
+        [movement_id, movement_date, site_id, product_id, movement_type, quantity, unit_cost, source_document_id]
+    data_rules:
+      required_values:
+        [movement_id, movement_date, site_id, product_id, movement_type, quantity, unit_cost, source_document_id]
+      unique: [movement_id]
+      dates: [movement_date]
+      allowed_values:
+        movement_type:
+          [PURCHASE_RECEIPT, SALE, TRANSFER_IN, TRANSFER_OUT, ADJUSTMENT, WRITE_OFF, RETURN]
+      numeric:
+        quantity: {integer: true}
+        unit_cost: {minimum: 0}
+      references:
+        site_id: {source: site_master, field: site_id}
+        product_id: {source: product_master, field: product_id}
+
+  # -------------------------------------------------------
+  # FINANCE
+  # -------------------------------------------------------
+
+  operating_expenses:
+    format: xlsx
+    path: operating_expenses.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns: [expense_id, expense_date, site_id, expense_type, description, amount]
+    data_rules:
+      required_values: [expense_id, expense_date, site_id, expense_type, amount]
+      unique: [expense_id]
+      dates: [expense_date]
+      allowed_values:
+        expense_type: [RENT, UTILITY, CONNECTIVITY, FUEL, SECURITY, MAINTENANCE]
+      numeric:
+        amount: {minimum: 0}
+      references:
+        site_id: {source: site_master, field: site_id}
+
+  general_ledger:
+    format: xlsx
+    path: general_ledger.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns:
+        [journal_id, posting_date, source_document_id, transaction_type, site_id, account_code, debit, credit]
+      record_key: [journal_id, account_code]
+    data_rules:
+      # business_rules.yaml -> finance.source_transaction_reference_required
+      required_values:
+        [journal_id, posting_date, source_document_id, transaction_type, site_id, account_code]
+      dates: [posting_date]
+      numeric:
+        debit: {minimum: 0}
+        credit: {minimum: 0}
+      references:
+        site_id: {source: site_master, field: site_id}
+        account_code: {config: chart_of_accounts.csv, field: account_code}
+        transaction_type:
+          config: posting_rules.csv
+          field: transaction_type
+          severity: WARNING
+          recommended_action: >-
+            Add a posting rule for this transaction type to
+            config/posting_rules.csv, or correct the journal.
+    business_rules:
+      # business_rules.yaml -> finance.journal_must_balance
+      group_balance:
+        - name: JOURNAL_BALANCE
+          group_by: journal_id
+          debit: debit
+          credit: credit
+          tolerance: 0.01
+
+  # -------------------------------------------------------
+  # ASSETS
+  # -------------------------------------------------------
+
+  fixed_assets_erp:
+    format: xlsx
+    path: fixed_assets_erp.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns:
+        [asset_id, site_id, asset_class, acquisition_date, acquisition_cost, useful_life_years,
+         monthly_depreciation, accumulated_depreciation, net_book_value, status]
+    data_rules:
+      required_values:
+        [asset_id, site_id, asset_class, acquisition_date, acquisition_cost, useful_life_years, status]
+      # business_rules.yaml -> assets.unique_erp_asset_number
+      unique: [asset_id]
+      patterns:
+        asset_id: '^AST\d{6}$'
+      dates: [acquisition_date]
+      allowed_values:
+        asset_class:
+          [Vehicles, Computer Hardware, Servers and Network Equipment,
+           Machinery and Equipment, Furniture and Fittings]
+        status: [ACTIVE, DISPOSED, WRITTEN_OFF]
+      numeric:
+        # business_rules.yaml -> assets.erp_capitalisation_threshold_nad
+        acquisition_cost: {minimum: 10000}
+        useful_life_years: {minimum: 1, integer: true}
+        monthly_depreciation: {minimum: 0}
+        accumulated_depreciation: {minimum: 0}
+        net_book_value: {minimum: 0}
+      references:
+        site_id: {source: site_master, field: site_id}
+    business_rules:
+      calculations:
+        - field: monthly_depreciation
+          formula: acquisition_cost / (useful_life_years * 12)
+          tolerance: 0.01
+        - field: net_book_value
+          formula: acquisition_cost - accumulated_depreciation
+          tolerance: 0.01
+      comparisons:
+        - name: DEPRECIATION_NOT_ABOVE_COST
+          field: accumulated_depreciation
+          operator: "<="
+          other_field: acquisition_cost
+
+  branch_local_assets:
+    format: xlsx
+    path: branch_local_assets.xlsx
+    structure:
+      sheet: Sheet1
+      required_columns:
+        [local_asset_id, site_id, department_id, description, condition, assigned_to, recorded_date]
+    data_rules:
+      required_values: [local_asset_id, site_id, department_id, description]
+      unique: [local_asset_id]
+      dates: [recorded_date]
+      allowed_values:
+        condition: [Good, Fair, Needs Repair]
+      references:
+        site_id: {source: site_master, field: site_id}
+        department_id: {source: department_master, field: department_id}
+
+  # -------------------------------------------------------
+  # DOCUMENTS
+  # -------------------------------------------------------
+
+  branch_cashup:
+    format: pdf
+    path: cashups/*.pdf
+    structure:
+      filename_pattern: '^S\d{3}_SHIFT-\d{6}_\d{8}_Cashup\.pdf$'
+      required_labels:
+        - Shift ID
+        - Site Code
+        - Business Date
+        - POS Terminal
+        - Cashier
+        - Opening Float
+        - Cash Sales
+        - Card Sales
+        - Account Sales
+        - Total Sales
+        - Cash Removed
+        - Expected Closing Cash
+        - Actual Closing Cash
+        - Variance
+        - Manager Approval
+    # Field extraction and value rules arrive with Phase 6 (PDF extraction).

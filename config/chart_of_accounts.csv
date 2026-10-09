@@ -1,0 +1,54 @@
+account_code,account_name,account_type,financial_statement,normal_balance
+1000,Cash on Hand,Asset,Balance Sheet,Debit
+1010,Bank - Operating,Asset,Balance Sheet,Debit
+1020,Bank - Payroll,Asset,Balance Sheet,Debit
+1100,Trade Receivables,Asset,Balance Sheet,Debit
+1110,Allowance for Doubtful Debts,Contra Asset,Balance Sheet,Credit
+1200,Inventory - Merchandise,Asset,Balance Sheet,Debit
+1210,Inventory in Transit,Asset,Balance Sheet,Debit
+1220,Inventory Shrinkage Provision,Contra Asset,Balance Sheet,Credit
+1300,Prepaid Expenses,Asset,Balance Sheet,Debit
+1400,VAT Input Receivable,Asset,Balance Sheet,Debit
+1500,Land and Buildings,Asset,Balance Sheet,Debit
+1510,Vehicles,Asset,Balance Sheet,Debit
+1520,Computer Hardware,Asset,Balance Sheet,Debit
+1530,Servers and Network Equipment,Asset,Balance Sheet,Debit
+1540,Machinery and Equipment,Asset,Balance Sheet,Debit
+1550,Furniture and Fittings,Asset,Balance Sheet,Debit
+1590,Accumulated Depreciation,Contra Asset,Balance Sheet,Credit
+2000,Trade Payables,Liability,Balance Sheet,Credit
+2010,Accrued Expenses,Liability,Balance Sheet,Credit
+2020,Payroll Liabilities,Liability,Balance Sheet,Credit
+2030,VAT Output Payable,Liability,Balance Sheet,Credit
+2040,VAT Control,Liability,Balance Sheet,Credit
+2050,Supplier Rebate Accrual,Asset,Balance Sheet,Debit
+2100,Short-term Borrowings,Liability,Balance Sheet,Credit
+2200,Long-term Borrowings,Liability,Balance Sheet,Credit
+3000,Share Capital,Equity,Balance Sheet,Credit
+3100,Retained Earnings,Equity,Balance Sheet,Credit
+4000,Retail Sales,Revenue,Income Statement,Credit
+4010,Wholesale Sales,Revenue,Income Statement,Credit
+4020,Sales Returns and Allowances,Contra Revenue,Income Statement,Debit
+4100,Other Operating Income,Revenue,Income Statement,Credit
+4200,Supplier Rebate Income,Revenue,Income Statement,Credit
+5000,Cost of Goods Sold,Expense,Income Statement,Debit
+5010,Inventory Shrinkage,Expense,Income Statement,Debit
+5020,Inventory Write-offs,Expense,Income Statement,Debit
+6000,Salaries and Wages,Expense,Income Statement,Debit
+6010,Employer Contributions,Expense,Income Statement,Debit
+6100,Rent Expense,Expense,Income Statement,Debit
+6110,Electricity and Water,Expense,Income Statement,Debit
+6120,Internet and Connectivity,Expense,Income Statement,Debit
+6130,Fuel Expense,Expense,Income Statement,Debit
+6140,Vehicle Repairs and Maintenance,Expense,Income Statement,Debit
+6150,Repairs and Maintenance,Expense,Income Statement,Debit
+6160,Security Expense,Expense,Income Statement,Debit
+6170,Insurance Expense,Expense,Income Statement,Debit
+6180,Stationery and Consumables,Expense,Income Statement,Debit
+6190,Professional Fees,Expense,Income Statement,Debit
+6200,Marketing Expense,Expense,Income Statement,Debit
+6210,Travel and Accommodation,Expense,Income Statement,Debit
+6220,Bank Charges,Expense,Income Statement,Debit
+6230,Bad Debt Expense,Expense,Income Statement,Debit
+6300,Depreciation Expense,Expense,Income Statement,Debit
+6400,Interest Expense,Expense,Income Statement,Debit

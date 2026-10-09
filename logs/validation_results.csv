@@ -1,0 +1,8 @@
+ING-20261004_154254,supplier_master,supplier_master.xlsx,STRUCTURE_VALIDATION,WORKBOOK_READABLE,,PASS,,,,,,Workbook opened successfully.,,2026-10-04T21:18:28
+ING-20261004_154254,supplier_master,supplier_master.xlsx,STRUCTURE_VALIDATION,REQUIRED_SHEET,,PASS,,['Sheet1'],Sheet1,,,Required worksheet 'Sheet1' exists.,,2026-10-04T21:18:28
+ING-20261004_154254,supplier_master,supplier_master.xlsx,STRUCTURE_VALIDATION,REQUIRED_COLUMN,supplier_id,PASS,,supplier_id,supplier_id,,,Required column 'supplier_id' exists.,,2026-10-04T21:18:28
+ING-20261004_154254,supplier_master,supplier_master.xlsx,STRUCTURE_VALIDATION,REQUIRED_COLUMN,supplier_name,PASS,,supplier_name,supplier_name,,,Required column 'supplier_name' exists.,,2026-10-04T21:18:28
+ING-20261004_154254,supplier_master,supplier_master.xlsx,STRUCTURE_VALIDATION,REQUIRED_COLUMN,location,PASS,,location,location,,,Required column 'location' exists.,,2026-10-04T21:18:28
+ING-20261004_154254,supplier_master,supplier_master.xlsx,STRUCTURE_VALIDATION,REQUIRED_COLUMN,minimum_order_value_nad,PASS,,minimum_order_value_nad,minimum_order_value_nad,,,Required column 'minimum_order_value_nad' exists.,,2026-10-04T21:18:28
+ING-20261004_154254,supplier_master,supplier_master.xlsx,STRUCTURE_VALIDATION,REQUIRED_COLUMN,rebate_rate,PASS,,rebate_rate,rebate_rate,,,Required column 'rebate_rate' exists.,,2026-10-04T21:18:28
+ING-20261004_154254,supplier_master,supplier_master.xlsx,STRUCTURE_VALIDATION,REQUIRED_COLUMN,payment_terms_days,PASS,,payment_terms_days,payment_terms_days,,,Required column 'payment_terms_days' exists.,,2026-10-04T21:18:28

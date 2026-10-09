@@ -1,0 +1,22 @@
+# Core data processing
+pandas==3.0.6
+openpyxl==3.1.5
+pyarrow==25.0.1
+
+# Database connectivity
+SQLAlchemy==2.1.1
+pyodbc==5.3.0
+
+# Configuration
+python-dotenv==1.2.3
+PyYAML==6.0.3
+
+# Synthetic test data
+Faker==40.39.0
+
+# PDF generation and processing
+reportlab==5.0.1
+pypdf==6.19.0
+
+# Testing
+pytest==9.1.1
