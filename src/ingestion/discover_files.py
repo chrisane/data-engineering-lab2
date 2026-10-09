@@ -1,6 +1,7 @@
 import csv
 import hashlib
 import shutil
+import traceback
 
 from datetime import datetime
 from pathlib import Path
@@ -61,7 +62,12 @@ RUN_LOG_FIELDS = [
 ]
 
 # Statuses that mean the file was refused and quarantined.
-REJECTED_STATUSES = {"INVALID_FORMAT", "INVALID_CONTENT", "EMPTY_FILE"}
+REJECTED_STATUSES = {
+    "INVALID_FORMAT",
+    "INVALID_CONTENT",
+    "EMPTY_FILE",
+    "INGESTION_ERROR",
+}
 
 
 # ---------------------------------------------------------
@@ -375,11 +381,20 @@ def process_file(
 
     if is_ignored(file, ignored_patterns):
 
+        message = "File is listed under ignored_files in the source registry."
+
+        # Recorded so "why was this file not ingested?" always has an answer.
+        write_manifest_record(
+            run_id, "IGNORED", file, None,
+            status="IGNORED",
+            message=message,
+        )
+
         return {
             "source": "IGNORED",
             "status": "IGNORED",
             "file_hash": None,
-            "message": "File is listed under ignored_files in the source registry.",
+            "message": message,
         }
 
     source = identify_source(file, source_registry)
@@ -505,6 +520,58 @@ def process_file(
     }
 
 
+def describe_exception(error: Exception) -> str:
+    """The error message plus the line of this script that raised it."""
+
+    frames = [
+        frame for frame in traceback.extract_tb(error.__traceback__)
+        if Path(frame.filename).resolve() == Path(__file__).resolve()
+    ]
+
+    location = (
+        f" (at {Path(__file__).name}:{frames[-1].lineno} in {frames[-1].name})"
+        if frames else ""
+    )
+
+    return f"{type(error).__name__}: {error}{location}"
+
+
+def record_ingestion_error(
+    file: Path,
+    run_id: str,
+    source_registry: dict,
+    error: Exception,
+) -> dict:
+    """
+    An unexpected error stopped this file (for example, it was locked
+    by another program). Log the cause and location in the manifest.
+    """
+
+    try:
+        source = identify_source(file, source_registry) or "UNKNOWN"
+    except Exception:
+        source = "UNKNOWN"
+
+    message = (
+        f"Unexpected error while ingesting the file: "
+        f"{describe_exception(error)}. The file was not ingested; "
+        f"fix the cause and re-run ingestion."
+    )
+
+    write_manifest_record(
+        run_id, source, file, None,
+        status="INGESTION_ERROR",
+        message=message,
+    )
+
+    return {
+        "source": source,
+        "status": "INGESTION_ERROR",
+        "file_hash": None,
+        "message": message,
+    }
+
+
 def discover_files() -> list[Path]:
 
     return sorted(
@@ -563,13 +630,21 @@ def run_ingestion() -> dict:
 
     for file in files:
 
-        outcome = process_file(
-            file,
-            run_id,
-            source_registry,
-            ignored_patterns,
-            ingested_hashes,
-        )
+        try:
+
+            outcome = process_file(
+                file,
+                run_id,
+                source_registry,
+                ignored_patterns,
+                ingested_hashes,
+            )
+
+        except Exception as error:
+
+            # Record the failure against this file and carry on with
+            # the rest of the batch.
+            outcome = record_ingestion_error(file, run_id, source_registry, error)
 
         status = outcome["status"]
 

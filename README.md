@@ -341,7 +341,53 @@ Outputs:
 - `logs/validation_file_status.csv`: one status row per validated file
 - `data/quarantine/<run_id>/`: copies of files with `ERROR` failures, each with a `.errors.csv` exception report (the RAW original is never modified)
 
+Every execution of a validation script has its own validation ID (for example `VAL-DATA-20261009_171018_434682`). The ID is stamped on every result row and file status row, so each result can be traced to the exact run that produced it.
+
+If validation crashes on a file, that file is recorded as `VALIDATION_ERROR` with the error and the line of code that raised it, and the other files are still validated. Ingestion works the same way and records `INGESTION_ERROR` against the file.
+
 The scripts exit with code 1 when any file fails, so they can be chained in a scheduler.
+
+### Check validation coverage
+
+```powershell
+python src/validation/check_coverage.py
+```
+
+A successful exit code must never hide skipped validation. For every file in the batch, this check proves that each validation stage produced a result and that every check configured in the registry actually ran. Any shortfall is reported as `INCOMPLETE`, `MISSING` or `UNVERIFIABLE`, and the checks that did not run are named. Sources with no data rules, such as the cash-up PDFs, are reported as structure checks only. Results are written to `logs/validation_coverage.csv`.
+
+### Decide what may be loaded into SQL
+
+```powershell
+python src/validation/load_eligibility.py
+```
+
+This is the gate between validation and SQL loading; the SQL loader will load only files marked `ELIGIBLE`. For each source it takes the most recently ingested version, or the latest version of each document for the cash-up PDFs, and decides:
+
+| Decision | Meaning |
+|---|---|
+| `ELIGIBLE` | Passed validation and every configured check ran |
+| `BLOCKED` | Not validated, failed validation, validation incomplete, or a newer submission was rejected (an older version is never loaded in its place, because it would be stale) |
+| `HELD` | Valid, but a critical source is blocked, so nothing loads |
+
+Critical sources are listed under `load_policy` in the registry (currently `general_ledger`, `site_master` and `product_master`). Every decision is recorded with its reason, the file hash and the validation IDs in `logs/load_eligibility.csv`. The script exits with 0 (ready), 1 (partial load) or 2 (held).
+
+### Find out exactly why a file failed
+
+```powershell
+python scripts/trace_file.py supplier_master.xlsx
+python scripts/trace_file.py general_ledger          # by source name
+python scripts/trace_file.py SHIFT-000082            # part of a file name
+```
+
+The trace shows a file's full history in one place:
+
+1. **Ingestion history:** every run that saw the file, with status, hash, storage path and reason
+2. **Validation history:** every validation of the traced version
+3. **Failures:** each failed check with sheet, Excel row, record key, field, actual vs expected value, message and recommended action (or the technical error and code location)
+4. **Coverage:** whether every configured check ran
+5. **Load eligibility:** the latest gate decision and its reason
+
+It ends with a one-line verdict, for example: `Failed data validation (DATA_INVALID, 2 error(s)): REQUIRED_VALUE on supplier_name (first at row 5); NUMERIC_RANGE on minimum_order_value_nad (first at row 7)`.
 
 ### Run the tests
 
@@ -351,7 +397,20 @@ python -m pytest tests
 
 ### Run the whole pipeline with a status board
 
-Double-click `run_pipeline.bat` (or run it from a terminal). It opens a separate window that runs data generation, ingestion, structural validation, data validation and the tests in order. Each step shows its exit code, duration and a colour-coded status: green **SUCCESS**, yellow **WARNING**, red **FAILED** or **ERROR**, and grey **SKIPPED**. The SQL step is shown as skipped until it is implemented.
+Double-click `run_pipeline.bat` (or run it from a terminal). It opens a separate window that runs these steps in order:
+
+1. data generation
+2. ingestion
+3. structural validation
+4. data validation
+5. validation coverage
+6. load eligibility
+7. the tests
+8. SQL loading
+
+Each step shows its exit code, duration and a colour-coded status: green **SUCCESS**, yellow **WARNING**, red **FAILED**, **ERROR** or **BLOCKED**, and grey **SKIPPED**.
+
+SQL loading is not implemented yet, but its row shows what the load-eligibility gate would allow. It turns red **BLOCKED** when a validation failure would stop the load. When anything fails, the board shows how to trace the file.
 
 ```powershell
 .\run_pipeline.bat                 # asks whether to generate new data
@@ -372,7 +431,10 @@ Steps that did not run are shown as **CANCELLED**. Generated data, RAW copies, q
 
 The pipeline exits with 0 (success), 1 (warnings), 2 (failure) or 130 (cancelled). The full output of each step is saved to `logs/pipeline_<timestamp>.log`.
 
-**Current limitation:** Ingestion and validation are run as separate scripts; automated orchestration is planned for Phase 5. PDF field extraction and cash-up reconciliation are planned for Phase 6.
+**Current limitations:**
+
+- PDF field extraction and cash-up reconciliation are planned for Phase 6.
+- Carrying `run_id`, source file, file hash and source row number on every staging and warehouse row will be built with the SQL stage (Phases 7–8). The SQL loader must read only `ELIGIBLE` files from the latest decision in `logs/load_eligibility.csv`.
 
 ## 9. Development Roadmap
 

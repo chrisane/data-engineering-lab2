@@ -42,6 +42,8 @@ INCOMING_DIR = PROJECT_ROOT / "data" / "incoming"
 LOG_DIR = PROJECT_ROOT / "logs"
 RUN_LOG_FILE = LOG_DIR / "ingestion_runs.csv"
 FILE_STATUS_LOG_FILE = LOG_DIR / "validation_file_status.csv"
+COVERAGE_LOG_FILE = LOG_DIR / "validation_coverage.csv"
+ELIGIBILITY_LOG_FILE = LOG_DIR / "load_eligibility.csv"
 
 CANCELLED_EXIT_CODE = 130
 
@@ -80,6 +82,7 @@ COLOURS = {
     "WARNING": "\033[93m",    # yellow
     "FAILED": "\033[91m",     # red
     "ERROR": "\033[91m",      # red
+    "BLOCKED": "\033[91m",    # red
     "CANCELLED": "\033[95m",  # magenta
     "SKIPPED": "\033[90m",    # grey
     "RUNNING": "\033[96m",    # cyan
@@ -92,6 +95,7 @@ STATUS_EXIT_CODES = {
     "WARNING": 1,
     "FAILED": 2,
     "ERROR": 2,
+    "BLOCKED": 2,
 }
 
 
@@ -420,6 +424,67 @@ def interpret_tests(exit_code: int, output: str) -> tuple[str, str]:
     return "ERROR", summary or "pytest could not run - see the pipeline log."
 
 
+def interpret_coverage(exit_code: int, rows: list[dict]) -> tuple[str, str]:
+
+    if exit_code not in (0, 1) or not rows:
+        return "ERROR", "Coverage check crashed - see the pipeline log."
+
+    counts = Counter(row["coverage_status"] for row in rows)
+    files = len({row["file"] for row in rows})
+    checks = sum(int(row["executed_checks"] or 0) for row in rows)
+
+    structure_only = sum(
+        1 for row in rows
+        if row["stage"] == "DATA_VALIDATION"
+        and row["coverage_status"] == "NOT_APPLICABLE"
+    )
+
+    detail = f"{files} files, {checks} checks verified"
+
+    if structure_only:
+        detail += f", {structure_only} structure-only"
+
+    gaps = counts["INCOMPLETE"] + counts["MISSING"] + counts["UNVERIFIABLE"]
+
+    if gaps:
+        return "FAILED", detail + (
+            f"; {gaps} gap(s): {counts['INCOMPLETE']} incomplete, "
+            f"{counts['MISSING']} missing, {counts['UNVERIFIABLE']} unverifiable"
+        )
+
+    return "SUCCESS", detail + "; every configured check ran"
+
+
+def interpret_eligibility(exit_code: int, rows: list[dict]) -> tuple[str, str]:
+
+    if exit_code not in (0, 1, 2) or not rows:
+        return "ERROR", "Load eligibility crashed - see the pipeline log."
+
+    counts = Counter(row["decision"] for row in rows)
+
+    detail = (
+        f"{counts['ELIGIBLE']} eligible, {counts['BLOCKED']} blocked, "
+        f"{counts['HELD']} held"
+    )
+
+    if exit_code == 2:
+
+        critical = sorted({
+            row["source"] for row in rows
+            if row["critical"] == "True" and row["decision"] == "BLOCKED"
+        })
+
+        if critical:
+            detail += f" - critical source blocked: {', '.join(critical)}"
+
+        return "FAILED", detail
+
+    if exit_code == 1:
+        return "WARNING", detail + " - partial load only"
+
+    return "SUCCESS", detail
+
+
 # What a step stopped part-way through leaves behind, and what to do.
 STOPPED_NOTES = {
     "1. Data generation": (
@@ -438,7 +503,14 @@ STOPPED_NOTES = {
         "Stopped part-way. Results for this run are incomplete - run the "
         "pipeline again to re-validate."
     ),
-    "5. Automated tests": "Stopped part-way. No project data is affected.",
+    "5. Validation coverage": (
+        "Stopped part-way. No data is affected; run the pipeline again."
+    ),
+    "6. Load eligibility": (
+        "Stopped part-way. No load decision was recorded; run the pipeline "
+        "again before loading."
+    ),
+    "7. Automated tests": "Stopped part-way. No project data is affected.",
 }
 
 
@@ -483,7 +555,7 @@ def print_legend() -> None:
     print(
         f"  Legend: {coloured('SUCCESS')}  {coloured('WARNING')}  "
         f"{coloured('FAILED')}  {coloured('ERROR')}  "
-        f"{coloured('CANCELLED')}  {coloured('SKIPPED')}"
+        f"{coloured('BLOCKED')}  {coloured('CANCELLED')}  {coloured('SKIPPED')}"
     )
 
 
@@ -503,6 +575,7 @@ class Pipeline:
         self.log = PipelineLog()
         self.results = []
         self.blocked_by = None  # label of a crashed step
+        self.gate = None        # (status, detail) of the load eligibility step
 
     def record(self, label, status, exit_code, seconds, detail) -> None:
 
@@ -620,9 +693,42 @@ class Pipeline:
         )
         self.finish_step(label, status, run, detail)
 
+    def check_coverage(self) -> None:
+
+        label = "5. Validation coverage"
+
+        if self.blocked(label):
+            return
+
+        rows_before = len(read_csv_rows(COVERAGE_LOG_FILE))
+
+        run = self.execute(label, ["src/validation/check_coverage.py"])
+        status, detail = interpret_coverage(
+            run.exit_code, new_rows(COVERAGE_LOG_FILE, rows_before),
+        )
+        self.finish_step(label, status, run, detail)
+
+    def check_eligibility(self) -> None:
+
+        label = "6. Load eligibility"
+
+        if self.blocked(label):
+            return
+
+        rows_before = len(read_csv_rows(ELIGIBILITY_LOG_FILE))
+
+        run = self.execute(label, ["src/validation/load_eligibility.py"])
+        status, detail = interpret_eligibility(
+            run.exit_code, new_rows(ELIGIBILITY_LOG_FILE, rows_before),
+        )
+
+        self.gate = (status, detail)
+
+        self.finish_step(label, status, run, detail)
+
     def test(self) -> None:
 
-        label = "5. Automated tests"
+        label = "7. Automated tests"
 
         if self.args.skip_tests:
             self.record(label, "SKIPPED", None, None, "Skipped (--skip-tests).")
@@ -651,8 +757,46 @@ class Pipeline:
                 {"DATA_VALID"},
                 {"DATA_VALID_WITH_WARNINGS"},
             )),
-            ("5. Automated tests", self.test),
+            ("5. Validation coverage", self.check_coverage),
+            ("6. Load eligibility", self.check_eligibility),
+            ("7. Automated tests", self.test),
         ]
+
+    def record_sql_step(self, cancelled: bool) -> None:
+        """
+        SQL loading is not implemented yet, but show what the gate
+        would allow, so a failed validation is visibly blocking.
+        """
+
+        label = "8. SQL staging & warehouse"
+        pending = "Not implemented yet (roadmap phases 7-8)."
+
+        if cancelled:
+            self.record(label, "CANCELLED", None, None, "Not run - pipeline cancelled.")
+
+        elif self.gate is None:
+            self.record(
+                label, "BLOCKED", None, None,
+                f"{pending} No load decision was made, so nothing would load.",
+            )
+
+        elif self.gate[0] in ("FAILED", "ERROR"):
+            self.record(
+                label, "BLOCKED", None, None,
+                f"{pending} Gate would block the load: {self.gate[1]}.",
+            )
+
+        elif self.gate[0] == "WARNING":
+            self.record(
+                label, "SKIPPED", None, None,
+                f"{pending} Gate would allow a partial load: {self.gate[1]}.",
+            )
+
+        else:
+            self.record(
+                label, "SKIPPED", None, None,
+                f"{pending} Gate would allow the load: {self.gate[1]}.",
+            )
 
     # -----------------------------------------------------
     # RUN
@@ -690,10 +834,7 @@ class Pipeline:
                 cancelled = True
                 break
 
-        self.record(
-            "6. SQL staging & warehouse", "SKIPPED", None, None,
-            "Not implemented yet (roadmap phases 7-8).",
-        )
+        self.record_sql_step(cancelled)
 
         if cancelled:
             overall, exit_code = "CANCELLED", CANCELLED_EXIT_CODE
@@ -714,6 +855,14 @@ class Pipeline:
             print(f"  {DIM}Full output: {self.log.path.relative_to(PROJECT_ROOT)}{RESET}")
 
         print(f"  {DIM}Details:     logs/validation_results.csv, logs/validation_file_status.csv{RESET}")
+        print(f"  {DIM}Gate:        logs/validation_coverage.csv, logs/load_eligibility.csv{RESET}")
+
+        if any(status in ("FAILED", "ERROR", "BLOCKED") for status in self.results):
+            print(
+                f"  {BOLD}Find out why a file failed:{RESET} "
+                f"python scripts/trace_file.py <file name>"
+            )
+
         print()
         print_legend()
         print()

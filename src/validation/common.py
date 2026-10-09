@@ -6,7 +6,9 @@ quarantine.
 
 import csv
 import shutil
+import traceback
 
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -29,16 +31,32 @@ SOURCE_REGISTRY_FILE = CONFIG_DIR / "source_registry.yaml"
 MANIFEST_FILE = PROJECT_ROOT / "logs" / "ingestion_manifest.csv"
 VALIDATION_LOG_FILE = PROJECT_ROOT / "logs" / "validation_results.csv"
 FILE_STATUS_LOG_FILE = PROJECT_ROOT / "logs" / "validation_file_status.csv"
+COVERAGE_LOG_FILE = PROJECT_ROOT / "logs" / "validation_coverage.csv"
+ELIGIBILITY_LOG_FILE = PROJECT_ROOT / "logs" / "load_eligibility.csv"
 
 DEFAULT_MAX_FAILURES_PER_RULE = 500
+
+STRUCTURE_STAGE = "STRUCTURE_VALIDATION"
+DATA_STAGE = "DATA_VALIDATION"
+
+# File statuses that mean validation stopped because of a failure, so
+# later checks were legitimately not executed.
+STOPPED_STATUSES = {
+    "STRUCTURE_INVALID",
+    "SKIPPED_STRUCTURE_INVALID",
+    "VALIDATION_ERROR",
+}
 
 
 # ---------------------------------------------------------
 # LOG SCHEMAS
 # ---------------------------------------------------------
 
+# validation_id identifies one execution of a validation script, so
+# every result can be traced to the exact run that produced it.
 RESULT_FIELDS = [
     "run_id",
+    "validation_id",
     "source",
     "file",
     "sheet",
@@ -80,8 +98,10 @@ LEGACY_RESULT_FIELDS = [
 
 FILE_STATUS_FIELDS = [
     "run_id",
+    "validation_id",
     "source",
     "file",
+    "file_path",
     "stage",
     "status",
     "rows_checked",
@@ -440,25 +460,34 @@ def write_file_status(
     stage: str,
     status: str,
     results: list[dict],
+    validation_id: str | None = None,
     rows_checked: int | None = None,
     quarantine_path: Path | None = None,
     data_steward: str | None = None,
+    errors: int | None = None,
+    warnings: int | None = None,
 ) -> None:
+    """
+    Record the outcome for one file. errors / warnings default to the
+    counts in results; pass the true totals when failures were capped.
+    """
 
-    errors, warnings = count_by_severity(results)
+    logged_errors, logged_warnings = count_by_severity(results)
 
     append_csv_rows(
         FILE_STATUS_LOG_FILE,
         FILE_STATUS_FIELDS,
         [{
             "run_id": run_id,
+            "validation_id": validation_id,
             "source": source,
             "file": file.name,
+            "file_path": project_relative(file),
             "stage": stage,
             "status": status,
             "rows_checked": rows_checked,
-            "errors": errors,
-            "warnings": warnings,
+            "errors": logged_errors if errors is None else errors,
+            "warnings": logged_warnings if warnings is None else warnings,
             "quarantine_path": (
                 quarantine_path.relative_to(PROJECT_ROOT).as_posix()
                 if quarantine_path else None
@@ -475,6 +504,169 @@ def data_steward(source_registry: dict, source: str) -> str | None:
     governance = source_registry.get(source, {}).get("governance") or {}
 
     return governance.get("data_steward")
+
+
+# ---------------------------------------------------------
+# TRACEABILITY
+# ---------------------------------------------------------
+
+def new_validation_id(stage: str) -> str:
+    """
+    Unique ID for one execution of a validation script, e.g.
+    VAL-STRUCTURE-20261009_171502_123456.
+    """
+
+    kind = "STRUCTURE" if stage == STRUCTURE_STAGE else "DATA"
+
+    return f"VAL-{kind}-{datetime.now():%Y%m%d_%H%M%S_%f}"
+
+
+def stamp_validation_id(results: list[dict], validation_id: str) -> None:
+
+    for result in results:
+        result["validation_id"] = validation_id
+
+
+def project_relative(path: Path) -> str:
+
+    path = Path(path).resolve()
+
+    return (
+        path.relative_to(PROJECT_ROOT).as_posix()
+        if path.is_relative_to(PROJECT_ROOT)
+        else str(path)
+    )
+
+
+def describe_exception(error: Exception) -> str:
+    """
+    The exception message plus where it was raised in this project's
+    code, so a crash can be pinpointed without a full traceback.
+    """
+
+    frames = traceback.extract_tb(error.__traceback__)
+
+    project_frames = [
+        frame for frame in frames
+        if Path(frame.filename).resolve().is_relative_to(PROJECT_ROOT)
+        and ".venv" not in Path(frame.filename).parts
+    ]
+
+    frame = (project_frames or frames or [None])[-1]
+
+    location = (
+        f" (at {project_relative(Path(frame.filename))}:{frame.lineno} "
+        f"in {frame.name})"
+        if frame else ""
+    )
+
+    return f"{error}{location}"
+
+
+def exception_result(
+    run_id: str,
+    source: str,
+    file: Path,
+    stage: str,
+    error: Exception,
+) -> dict:
+    """
+    A validation script crashed on this file. Record why and where,
+    so the file is marked as failed rather than silently skipped.
+    """
+
+    return make_result(
+        run_id=run_id,
+        source=source,
+        file=file,
+        stage=stage,
+        rule="VALIDATION_EXCEPTION",
+        status="FAIL",
+        severity="ERROR",
+        error_type=type(error).__name__,
+        technical_error=describe_exception(error),
+        expected="Validation completes without an unexpected error.",
+        message=(
+            f"Validation stopped unexpectedly ({type(error).__name__}); "
+            f"the file's checks are incomplete."
+        ),
+        recommended_action=(
+            "Check technical_error for the cause and location. If the "
+            "file is at fault, fix and resubmit it; otherwise report "
+            "the error to the data engineering team."
+        ),
+    )
+
+
+def read_log(path: Path) -> list[dict]:
+
+    if not path.exists():
+        return []
+
+    with open(path, "r", newline="", encoding="utf-8") as log_file:
+        return list(csv.DictReader(log_file))
+
+
+def latest_file_status(
+    status_rows: list[dict],
+    run_id: str,
+    file_name: str,
+    stage: str,
+) -> dict | None:
+    """Most recent validation outcome for a file in a given run."""
+
+    matches = [
+        row for row in status_rows
+        if row["run_id"] == run_id
+        and row["file"] == file_name
+        and row["stage"] == stage
+    ]
+
+    return matches[-1] if matches else None
+
+
+def failure_summary(
+    result_rows: list[dict],
+    limit: int = 3,
+) -> str:
+    """
+    Short human-readable reason, e.g.
+    'REQUIRED_VALUE on supplier_id x3 (first at row 7)'.
+    """
+
+    failures = [
+        row for row in result_rows
+        if row["status"] == "FAIL" and row["severity"] == "ERROR"
+    ]
+
+    if not failures:
+        return ""
+
+    counts = Counter((row["rule"], row["field"]) for row in failures)
+
+    parts = []
+
+    for (rule, field), count in counts.most_common(limit):
+
+        first = next(
+            row for row in failures
+            if row["rule"] == rule and row["field"] == field
+        )
+
+        part = f"{rule}" + (f" on {field}" if field else "")
+        part += f" x{count}" if count > 1 else ""
+
+        if first.get("row_number"):
+            part += f" (first at row {first['row_number']})"
+        elif first.get("message"):
+            part += f" ({first['message']})"
+
+        parts.append(part)
+
+    if len(counts) > limit:
+        parts.append(f"+{len(counts) - limit} more rule(s)")
+
+    return "; ".join(parts)
 
 
 # ---------------------------------------------------------

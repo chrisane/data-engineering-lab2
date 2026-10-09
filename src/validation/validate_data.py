@@ -38,18 +38,22 @@ from pathlib import Path
 
 from common import (
     CONFIG_DIR,
+    DATA_STAGE,
     DEFAULT_MAX_FAILURES_PER_RULE,
     PROJECT_ROOT,
     data_steward,
+    exception_result,
     is_blank,
     latest_raw_file_for_source,
     load_settings,
     load_source_registry,
     make_result,
+    new_validation_id,
     quarantine_file,
     read_manifest,
     read_table,
     select_targets,
+    stamp_validation_id,
     write_file_status,
     write_validation_results,
 )
@@ -59,7 +63,6 @@ from validate_structure import (
 )
 
 
-DATA_STAGE = "DATA_VALIDATION"
 BUSINESS_STAGE = "BUSINESS_RULE_VALIDATION"
 
 COMPARISON_OPERATORS = {
@@ -1237,6 +1240,102 @@ def structure_gate_result(
     )
 
 
+def validate_file(
+    file: Path,
+    run_id: str,
+    source: str,
+    source_registry: dict,
+    reference_data: ReferenceData,
+    max_failures_per_rule: int = DEFAULT_MAX_FAILURES_PER_RULE,
+) -> tuple[dict, list[dict]]:
+    """
+    Gate on structure, then run the data rules. Returns the validation
+    and the results to put in a quarantine report (which, for a file
+    that failed the gate, includes the structural failures).
+    """
+
+    structure_validation = validate_structure(
+        file=file,
+        run_id=run_id,
+        source=source,
+        source_registry=source_registry,
+        full_row_count=False,
+    )
+
+    if structure_validation["status"] != "STRUCTURE_VALID":
+
+        results = [structure_gate_result(file, run_id, source, structure_validation)]
+        key = (DATA_STAGE, "STRUCTURE_GATE", None)
+
+        validation = {
+            "file": file.name,
+            "source": source,
+            "status": "SKIPPED_STRUCTURE_INVALID",
+            "rows_checked": 0,
+            "errors": 1,
+            "warnings": 0,
+            "failure_counts": Counter({key: 1}),
+            "failure_severity": {key: "ERROR"},
+            "results": results,
+        }
+
+        return validation, structure_validation["results"] + results
+
+    validation = validate_data(
+        file=file,
+        run_id=run_id,
+        source=source,
+        source_registry=source_registry,
+        reference_data=reference_data,
+        max_failures_per_rule=max_failures_per_rule,
+    )
+
+    return validation, validation["results"]
+
+
+def expected_data_checks(source_config: dict) -> set[tuple[str, str]]:
+    """
+    The (rule, field) pairs a complete data validation of this source
+    must produce (as PASS or FAIL). Mirrors the rule functions above;
+    used by the coverage check to prove every configured check ran.
+    """
+
+    rules = source_config.get("data_rules") or {}
+    business = source_config.get("business_rules") or {}
+
+    checks = set()
+
+    checks |= {("REQUIRED_VALUE", field) for field in rules.get("required_values") or []}
+
+    for key in rules.get("unique") or []:
+        fields = [key] if isinstance(key, str) else list(key)
+        checks.add(("UNIQUE", "+".join(fields)))
+
+    for field, limits in (rules.get("numeric") or {}).items():
+        checks.add(("DATA_TYPE", field))
+        limits = limits or {}
+        if limits.get("minimum") is not None or limits.get("maximum") is not None:
+            checks.add(("NUMERIC_RANGE", field))
+
+    checks |= {("VALID_DATE", field) for field in rules.get("dates") or []}
+    checks |= {("ALLOWED_VALUE", field) for field in rules.get("allowed_values") or {}}
+    checks |= {("PATTERN", field) for field in rules.get("patterns") or {}}
+    checks |= {("REFERENTIAL_INTEGRITY", field) for field in rules.get("references") or {}}
+
+    for calculation in business.get("calculations") or []:
+        checks.add((calculation.get("name", "CALCULATION"), calculation["field"]))
+
+    for comparison in business.get("comparisons") or []:
+        checks.add((comparison.get("name", "COMPARISON"), comparison["field"]))
+
+    for balance in business.get("group_balance") or []:
+        name = balance.get("name", "GROUP_BALANCE")
+        checks.add((name, balance["group_by"]))
+        checks.add((f"{name}_FILE_TOTAL", ""))
+
+    return checks
+
+
 # ---------------------------------------------------------
 # COMMAND LINE
 # ---------------------------------------------------------
@@ -1288,7 +1387,10 @@ def main() -> int:
 
     reference_data = ReferenceData(read_manifest(), run_id, source_registry)
 
-    print(f"\nDATA VALIDATION: {run_id}\n")
+    validation_id = new_validation_id(DATA_STAGE)
+
+    print(f"\nDATA VALIDATION: {run_id}")
+    print(f"Validation ID: {validation_id}\n")
 
     status_counts = Counter()
 
@@ -1300,35 +1402,9 @@ def main() -> int:
             status_counts["NOT_APPLICABLE"] += 1
             continue
 
-        structure_validation = validate_structure(
-            file=file,
-            run_id=run_id,
-            source=source,
-            source_registry=source_registry,
-            full_row_count=False,
-        )
+        try:
 
-        if structure_validation["status"] != "STRUCTURE_VALID":
-
-            results = [structure_gate_result(file, run_id, source, structure_validation)]
-
-            validation = {
-                "file": file.name,
-                "source": source,
-                "status": "SKIPPED_STRUCTURE_INVALID",
-                "rows_checked": 0,
-                "errors": 1,
-                "warnings": 0,
-                "failure_counts": Counter({(DATA_STAGE, "STRUCTURE_GATE", None): 1}),
-                "failure_severity": {(DATA_STAGE, "STRUCTURE_GATE", None): "ERROR"},
-                "results": results,
-            }
-
-            quarantine_results = structure_validation["results"] + results
-
-        else:
-
-            validation = validate_data(
+            validation, quarantine_results = validate_file(
                 file=file,
                 run_id=run_id,
                 source=source,
@@ -1337,8 +1413,30 @@ def main() -> int:
                 max_failures_per_rule=max_failures,
             )
 
-            results = validation["results"]
-            quarantine_results = results
+        except Exception as error:
+
+            # Record the crash against this file and carry on with
+            # the rest, rather than stopping the whole batch.
+            key = (DATA_STAGE, "VALIDATION_EXCEPTION", None)
+
+            validation = {
+                "file": file.name,
+                "source": source,
+                "status": "VALIDATION_ERROR",
+                "rows_checked": None,
+                "errors": 1,
+                "warnings": 0,
+                "failure_counts": Counter({key: 1}),
+                "failure_severity": {key: "ERROR"},
+                "results": [exception_result(run_id, source, file, DATA_STAGE, error)],
+            }
+
+            quarantine_results = validation["results"]
+
+        results = validation["results"]
+
+        stamp_validation_id(quarantine_results, validation_id)
+        stamp_validation_id(results, validation_id)
 
         write_validation_results(results)
 
@@ -1354,9 +1452,12 @@ def main() -> int:
             stage=DATA_STAGE,
             status=validation["status"],
             results=results,
+            validation_id=validation_id,
             rows_checked=validation["rows_checked"],
             quarantine_path=quarantine_path,
             data_steward=data_steward(source_registry, source),
+            errors=validation["errors"],
+            warnings=validation["warnings"],
         )
 
         status_counts[validation["status"]] += 1
@@ -1374,15 +1475,22 @@ def main() -> int:
     print(f"Data valid with warnings:   {status_counts['DATA_VALID_WITH_WARNINGS']}")
     print(f"Data invalid:               {status_counts['DATA_INVALID']}")
     print(f"Skipped (structure invalid): {status_counts['SKIPPED_STRUCTURE_INVALID']}")
+    print(f"Validation errors:          {status_counts['VALIDATION_ERROR']}")
     print(f"Not applicable (no rules):  {status_counts['NOT_APPLICABLE']}")
+    print(f"Validation ID:              {validation_id}")
     print(f"Detailed results:           logs/validation_results.csv")
 
     invalid = (
         status_counts["DATA_INVALID"]
         + status_counts["SKIPPED_STRUCTURE_INVALID"]
+        + status_counts["VALIDATION_ERROR"]
     )
 
-    return 1 if invalid else 0
+    if invalid:
+        print("Trace a file:               python scripts/trace_file.py <file name>")
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":

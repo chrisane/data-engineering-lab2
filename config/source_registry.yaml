@@ -54,6 +54,16 @@ governance_policy:
   # and must be confirmed against legal and tax requirements.
   retention_policy_status: Draft
 
+# Gate between validation and SQL loading (src/validation/load_eligibility.py).
+load_policy:
+  # Validation outcomes that allow a file to be loaded.
+  eligible_structure_statuses: [STRUCTURE_VALID]
+  eligible_data_statuses: [DATA_VALID, DATA_VALID_WITH_WARNINGS]
+  # If any of these sources is blocked, nothing is loaded:
+  # - general_ledger: partial financial data would misstate the accounts
+  # - site_master, product_master: every fact table references them
+  critical_sources: [general_ledger, site_master, product_master]
+
 # Files that are deliberately not ingested.
 ignored_files:
   - generation_validation.xlsx   # Synthetic data generator QA output

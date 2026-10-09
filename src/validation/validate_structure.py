@@ -33,18 +33,23 @@ from pypdf import PdfReader
 
 from common import (
     PROJECT_ROOT,
+    STOPPED_STATUSES,
+    STRUCTURE_STAGE,
     data_steward,
+    exception_result,
     is_blank,
     load_source_registry,
     make_result,
+    new_validation_id,
     quarantine_file,
     select_targets,
+    stamp_validation_id,
     write_file_status,
     write_validation_results,
 )
 
 
-STAGE = "STRUCTURE_VALIDATION"
+STAGE = STRUCTURE_STAGE
 
 
 # ---------------------------------------------------------
@@ -740,6 +745,46 @@ def validate_source(
     )
 
 
+def expected_structure_checks(source_config: dict) -> set[tuple[str, str]]:
+    """
+    The (rule, field) pairs a complete structural validation of this
+    source must produce. Used by the coverage check to prove that
+    every check ran. Field is '' where a check has no field.
+    """
+
+    structure = source_config.get("structure") or {}
+    file_format = source_config["format"].lower()
+
+    if file_format == "pdf":
+
+        checks = {("PDF_READABLE", "")}
+
+        if structure.get("filename_pattern"):
+            checks.add(("FILENAME_CONVENTION", ""))
+
+        checks |= {
+            ("REQUIRED_LABEL", label)
+            for label in structure.get("required_labels") or []
+        }
+
+        return checks
+
+    checks = {
+        ("WORKBOOK_READABLE" if file_format == "xlsx" else "FILE_READABLE", ""),
+        ("MINIMUM_ROWS", ""),
+    }
+
+    if file_format == "xlsx":
+        checks.add(("REQUIRED_SHEET", ""))
+
+    checks |= {
+        ("REQUIRED_COLUMN", column)
+        for column in structure.get("required_columns") or []
+    }
+
+    return checks
+
+
 # ---------------------------------------------------------
 # COMMAND LINE
 # ---------------------------------------------------------
@@ -786,28 +831,46 @@ def main() -> int:
 
     quarantine_enabled = not (is_adhoc or args.no_quarantine)
 
+    validation_id = new_validation_id(STAGE)
+
     print(f"\nSTRUCTURE VALIDATION: {run_id}")
+    print(f"Validation ID: {validation_id}")
     print(f"Files: {len(targets)}\n")
 
     status_counts = Counter()
 
     for source, file in targets:
 
-        validation = validate_source(
-            file=file,
-            run_id=run_id,
-            source=source,
-            source_registry=source_registry,
-        )
+        try:
+
+            validation = validate_source(
+                file=file,
+                run_id=run_id,
+                source=source,
+                source_registry=source_registry,
+            )
+
+        except Exception as error:
+
+            # Record the crash against this file and carry on with
+            # the rest, rather than stopping the whole batch.
+            validation = {
+                "status": "VALIDATION_ERROR",
+                "failed_stage": "VALIDATION_EXCEPTION",
+                "row_count": None,
+                "results": [exception_result(run_id, source, file, STAGE, error)],
+            }
 
         results = validation["results"]
+
+        stamp_validation_id(results, validation_id)
 
         write_validation_results(results)
 
         quarantine_path = None
 
         if (
-            validation["status"] == "STRUCTURE_INVALID"
+            validation["status"] in STOPPED_STATUSES
             and quarantine_enabled
         ):
             quarantine_path = quarantine_file(file, run_id, results)
@@ -819,6 +882,7 @@ def main() -> int:
             stage=STAGE,
             status=validation["status"],
             results=results,
+            validation_id=validation_id,
             rows_checked=validation["row_count"],
             quarantine_path=quarantine_path,
             data_steward=data_steward(source_registry, source),
@@ -859,8 +923,14 @@ def main() -> int:
     print(f"Files validated:   {len(targets)}")
     print(f"Structure valid:   {status_counts['STRUCTURE_VALID']}")
     print(f"Structure invalid: {status_counts['STRUCTURE_INVALID']}")
+    print(f"Validation errors: {status_counts['VALIDATION_ERROR']}")
+    print(f"Validation ID:     {validation_id}")
 
-    return 1 if status_counts["STRUCTURE_INVALID"] else 0
+    if status_counts["STRUCTURE_INVALID"] or status_counts["VALIDATION_ERROR"]:
+        print("Trace a file:      python scripts/trace_file.py <file name>")
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
