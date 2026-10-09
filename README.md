@@ -297,28 +297,66 @@ Generated files are written to:
 python src/ingestion/discover_files.py
 ```
 
+Each file in `data/incoming/` is matched to a source in `config/source_registry.yaml`, checked for correct extension and genuine content (file signature), hashed, and copied to `data/raw/<run_id>/`. Every outcome is recorded in `logs/ingestion_manifest.csv`:
+
+| Status | Meaning |
+|---|---|
+| `INGESTED` | New file copied to RAW |
+| `SKIPPED_DUPLICATE` | Identical content was already ingested |
+| `UNREGISTERED` | No source contract matches the file name |
+| `INVALID_FORMAT` / `INVALID_CONTENT` / `EMPTY_FILE` | Rejected and copied to `data/quarantine/<run_id>/` |
+
+Run-level totals are written to `logs/ingestion_runs.csv`.
+
 ### Run structural validation
 
 ```powershell
 python src/validation/validate_structure.py
 ```
 
-### Run required-value validation
+Checks readability, required worksheet, required, duplicate and unexpected columns, and minimum rows (Excel and CSV). For PDF cash-ups it checks readability, the file-naming convention and the required labels.
+
+### Run data-quality and business-rule validation
 
 ```powershell
 python src/validation/validate_data.py
 ```
 
-**Current limitation:** Validation scripts are still being developed and tested against selected sources. They are not yet fully integrated into an automated, multi-source pipeline.
+Applies the `data_rules` (required values, uniqueness, numeric types and ranges, dates, allowed values, patterns, referential integrity) and `business_rules` (calculations, comparisons, journal balancing) defined for each source in the registry.
+
+Both validation scripts default to the latest ingestion run and accept these options:
+
+```powershell
+--run-id ING-20261004_154838     # validate a specific run
+--source purchase_orders         # validate one source only
+--source supplier_master --file tests/test_data/corrupted_supplier_master.xlsx   # ad-hoc file
+--no-quarantine                  # do not copy failed files to quarantine
+```
+
+Outputs:
+
+- `logs/validation_results.csv`: one row per check or failure, with the sheet, Excel row number, record key, field, rule, actual and expected values, severity and recommended action
+- `logs/validation_file_status.csv`: one status row per validated file
+- `data/quarantine/<run_id>/`: copies of files with `ERROR` failures, each with a `.errors.csv` exception report (the RAW original is never modified)
+
+The scripts exit with code 1 when any file fails, so they can be chained in a scheduler.
+
+### Run the tests
+
+```powershell
+python -m pytest tests
+```
+
+**Current limitation:** Ingestion and validation are run as separate scripts; automated orchestration is planned for Phase 5. PDF field extraction and cash-up reconciliation are planned for Phase 6.
 
 ## 9. Development Roadmap
 
 | Phase | Deliverable | Status |
 |---|---|---|
 | 1 | Business model, rules and synthetic data generation | Completed |
-| 2 | Source registry, discovery and RAW ingestion | Initial implementation completed |
-| 3 | Structural validation and validation logging | Initial implementation completed |
-| 4 | Row-level data-quality validation | In progress |
+| 2 | Source registry, discovery and RAW ingestion | Completed |
+| 3 | Structural validation and validation logging | Completed |
+| 4 | Row-level data-quality validation | Completed |
 | 5 | Automated validation orchestration and quarantine | Planned |
 | 6 | PDF extraction and source reconciliation | Planned |
 | 7 | Data transformation and staging | Planned |

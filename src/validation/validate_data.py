@@ -40,7 +40,6 @@ from common import (
     CONFIG_DIR,
     DEFAULT_MAX_FAILURES_PER_RULE,
     PROJECT_ROOT,
-    count_by_severity,
     is_blank,
     latest_raw_file_for_source,
     load_settings,
@@ -1176,12 +1175,8 @@ def validate_data(
 
     results = collector.finalise(rows_checked=len(table.rows))
 
-    errors, warnings = count_by_severity(
-        [result for result in results if result["status"] == "FAIL"]
-    )
-
-    # count_by_severity counts logged rows; use the true totals so
-    # capped rules are still counted in full.
+    # Count from the collector, not the logged rows, so rules whose
+    # failures were capped are still counted in full.
     errors = sum(
         count for key, count in collector.failure_counts.items()
         if collector.failure_severity[key] == "ERROR"
