@@ -291,6 +291,8 @@ Generated files are written to:
 
 `data/incoming/`
 
+The generated spreadsheets are not committed to the repository, so run this step after cloning. The branch cash-up PDFs in `data/incoming/cashups/` are committed because no generator for them exists yet. Pipeline outputs (`data/raw/`, `data/quarantine/`, `data/processed/`, `data/archive/` and `logs/`) are also excluded from version control.
+
 ### Run source discovery and ingestion
 
 ```powershell

@@ -224,6 +224,7 @@ def post(date, source, typ, debit, credit, amount, site):
     global jid
     if amount == 0: return
     j=f"JRN{jid:09d}"; jid+=1
+    date=pd.Timestamp(date).date()  # always a real date, never text
     journals.extend([
         (j,date,source,typ,site,debit,money(amount),0.0),
         (j,date,source,typ,site,credit,0.0,money(amount))
@@ -258,17 +259,19 @@ for a in assets_df.itertuples():
 gl_df=pd.DataFrame(journals,columns=["journal_id","posting_date","source_document_id","transaction_type","site_id","account_code","debit","credit"])
 
 # ---------- OPENING BALANCES ----------
+# One balanced journal: all opening lines share a journal ID.
+OPENING_DATE=pd.Timestamp("2026-01-01").date()
 opening = [
- ("OPEN-001","2026-01-01","OPENING","OPENING","HO001","1010",6500000,0),
- ("OPEN-002","2026-01-01","OPENING","OPENING","DC001","1200",8500000,0),
- ("OPEN-003","2026-01-01","OPENING","OPENING","HO001","1500",12000000,0),
- ("OPEN-004","2026-01-01","OPENING","OPENING","HO001","1510",4500000,0),
- ("OPEN-005","2026-01-01","OPENING","OPENING","HO001","1520",1800000,0),
- ("OPEN-006","2026-01-01","OPENING","OPENING","HO001","1590",0,3000000),
- ("OPEN-007","2026-01-01","OPENING","OPENING","HO001","2000",0,4500000),
- ("OPEN-008","2026-01-01","OPENING","OPENING","HO001","2200",0,6000000),
- ("OPEN-009","2026-01-01","OPENING","OPENING","HO001","3000",0,10000000),
- ("OPEN-010","2026-01-01","OPENING","OPENING","HO001","3100",0,9800000),
+ ("OPEN-2026",OPENING_DATE,"OPENING","OPENING","HO001","1010",6500000,0),
+ ("OPEN-2026",OPENING_DATE,"OPENING","OPENING","DC001","1200",8500000,0),
+ ("OPEN-2026",OPENING_DATE,"OPENING","OPENING","HO001","1500",12000000,0),
+ ("OPEN-2026",OPENING_DATE,"OPENING","OPENING","HO001","1510",4500000,0),
+ ("OPEN-2026",OPENING_DATE,"OPENING","OPENING","HO001","1520",1800000,0),
+ ("OPEN-2026",OPENING_DATE,"OPENING","OPENING","HO001","1590",0,3000000),
+ ("OPEN-2026",OPENING_DATE,"OPENING","OPENING","HO001","2000",0,4500000),
+ ("OPEN-2026",OPENING_DATE,"OPENING","OPENING","HO001","2200",0,6000000),
+ ("OPEN-2026",OPENING_DATE,"OPENING","OPENING","HO001","3000",0,10000000),
+ ("OPEN-2026",OPENING_DATE,"OPENING","OPENING","HO001","3100",0,9800000),
 ]
 gl_df=pd.concat([pd.DataFrame(opening,columns=gl_df.columns),gl_df],ignore_index=True)
 

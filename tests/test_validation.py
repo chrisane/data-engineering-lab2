@@ -243,3 +243,17 @@ def test_unsafe_formulas_are_rejected(formula):
 
     with pytest.raises(ValueError):
         compile_formula(formula)
+
+
+def test_gate_stops_counting_at_minimum_rows(tmp_path):
+
+    file = make_workbook(tmp_path / "po.xlsx", [VALID_ROW] * 5)
+
+    full = validate_source(file, "T", "purchase_orders", REGISTRY)
+    gate = validate_source(
+        file, "T", "purchase_orders", REGISTRY, full_row_count=False
+    )
+
+    assert full["row_count"] == 5
+    assert gate["row_count"] == 1
+    assert gate["status"] == "STRUCTURE_VALID"

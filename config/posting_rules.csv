@@ -20,3 +20,6 @@ DEPRECIATION,6300,1590,Monthly depreciation
 REBATE_ACCRUAL,2050,4200,Accrue supplier rebate earned
 REBATE_RECEIPT,1010,2050,Receive supplier rebate
 STOCK_WRITE_OFF,5020,1200,Write off inventory
+SECURITY,6160,1010,Pay security expense
+MAINTENANCE,6150,1010,Pay repairs and maintenance
+OPENING,,,Opening balances - one multi-line journal; accounts per opening trial balance

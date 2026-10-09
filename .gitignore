@@ -1,0 +1,39 @@
+# ---------------------------------------------------------
+# Python
+# ---------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ---------------------------------------------------------
+# Generated synthetic source data
+# Recreate with: python scripts/generate_all.py
+# ---------------------------------------------------------
+data/incoming/*.xlsx
+data/incoming/*.csv
+
+# The cash-up PDFs have no generator in this repo yet, so they
+# stay under version control as the PDF test batch.
+!data/incoming/cashups/
+
+# ---------------------------------------------------------
+# Pipeline outputs (created when the pipeline runs)
+# ---------------------------------------------------------
+data/raw/*
+data/quarantine/*
+data/processed/*
+data/archive/*
+!data/*/.gitkeep
+
+logs/*
+!logs/.gitkeep
+
+# ---------------------------------------------------------
+# Editor and OS files
+# ---------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

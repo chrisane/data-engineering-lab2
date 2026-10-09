@@ -24,6 +24,7 @@ import re
 import sys
 
 from collections import Counter
+from itertools import islice
 from pathlib import Path
 
 import openpyxl
@@ -49,9 +50,28 @@ STAGE = "STRUCTURE_VALIDATION"
 # FILE INSPECTION
 # ---------------------------------------------------------
 
+def count_data_rows(
+    rows,
+    row_limit: int | None,
+) -> int:
+    """
+    Count non-blank rows. With a row_limit, stop as soon as that many
+    have been seen - enough to prove a minimum without reading a
+    large file to the end.
+    """
+
+    non_blank = (
+        row for row in rows
+        if not all(is_blank(value) for value in row)
+    )
+
+    return sum(1 for _ in islice(non_blank, row_limit))
+
+
 def inspect_workbook(
     file: Path,
     sheet_name: str | None,
+    row_limit: int | None = None,
 ) -> dict:
     """
     Open a workbook once and collect what the structural checks
@@ -82,10 +102,7 @@ def inspect_workbook(
             for header in next(rows, ())
         ]
 
-        row_count = sum(
-            1 for row in rows
-            if not all(is_blank(value) for value in row)
-        )
+        row_count = count_data_rows(rows, row_limit)
 
     finally:
         workbook.close()
@@ -97,7 +114,10 @@ def inspect_workbook(
     }
 
 
-def inspect_csv(file: Path) -> dict:
+def inspect_csv(
+    file: Path,
+    row_limit: int | None = None,
+) -> dict:
 
     with open(
         file,
@@ -110,10 +130,7 @@ def inspect_csv(file: Path) -> dict:
 
         headers = [header.strip() for header in next(reader, [])]
 
-        row_count = sum(
-            1 for row in reader
-            if not all(is_blank(value) for value in row)
-        )
+        row_count = count_data_rows(reader, row_limit)
 
     return {
         "headers": headers,
@@ -130,6 +147,7 @@ def validate_readable(
     run_id: str,
     source: str,
     structure: dict,
+    row_limit: int | None = None,
 ) -> tuple[dict, dict | None]:
     """
     Check whether the file can be opened. Returns the validation
@@ -143,9 +161,9 @@ def validate_readable(
     try:
 
         inspection = (
-            inspect_workbook(file, structure.get("sheet"))
+            inspect_workbook(file, structure.get("sheet"), row_limit)
             if is_excel
-            else inspect_csv(file)
+            else inspect_csv(file, row_limit)
         )
 
     except Exception as error:
@@ -616,7 +634,13 @@ def validate_source(
     run_id: str,
     source: str,
     source_registry: dict,
+    full_row_count: bool = True,
 ) -> dict:
+    """
+    Run all structural checks for one file. With full_row_count=False
+    the row count stops at the contract's minimum_rows, which is all
+    a pass/fail gate needs.
+    """
 
     source_config = source_registry[source]
     structure = source_config.get("structure") or {}
@@ -644,6 +668,10 @@ def validate_source(
         run_id=run_id,
         source=source,
         structure=structure,
+        row_limit=(
+            None if full_row_count
+            else structure.get("minimum_rows", 1)
+        ),
     )
 
     validation_results.append(readable_result)

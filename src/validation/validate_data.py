@@ -1304,6 +1304,7 @@ def main() -> int:
             run_id=run_id,
             source=source,
             source_registry=source_registry,
+            full_row_count=False,
         )
 
         if structure_validation["status"] != "STRUCTURE_VALID":

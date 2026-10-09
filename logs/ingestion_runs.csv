@@ -1,2 +1,0 @@
-run_id,started_at,finished_at,discovered,ingested,duplicates,ignored,unregistered,rejected,run_status
-ING-20261009_153104,2026-10-09T15:31:03,2026-10-09T15:31:06,130,0,129,1,0,0,COMPLETED
