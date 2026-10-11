@@ -33,14 +33,15 @@ from common import (
     PROJECT_ROOT,
     STOPPED_STATUSES,
     STRUCTURE_STAGE,
+    contract_checksum,
     data_steward,
     exception_result,
     is_blank,
-    load_source_registry,
+    load_registry_config,
     make_result,
     new_validation_id,
+    plan_validation,
     quarantine_file,
-    select_targets,
     stamp_validation_id,
     write_file_status,
     write_validation_results,
@@ -849,6 +850,11 @@ def parse_arguments(description: str) -> argparse.Namespace:
         action="store_true",
         help="Do not copy failed files to data/quarantine.",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Validate again even if the file was already validated under the current contract.",
+    )
 
     return parser.parse_args()
 
@@ -857,26 +863,28 @@ def main() -> int:
 
     args = parse_arguments("Validate the structure of ingested source files.")
 
-    source_registry = load_source_registry()
+    registry_config = load_registry_config()
+    source_registry = registry_config["sources"]
+    settings = registry_config.get("settings") or {}
 
-    run_id, targets, is_adhoc = select_targets(
-        args.run_id,
-        args.source,
-        args.file,
-        source_registry,
-    )
+    targets, reused, is_adhoc = plan_validation(args, STAGE, registry_config)
 
     quarantine_enabled = not (is_adhoc or args.no_quarantine)
 
     validation_id = new_validation_id(STAGE)
+    run_ids = sorted({target.run_id for target in targets})
 
-    print(f"\nSTRUCTURE VALIDATION: {run_id}")
+    print(f"\nSTRUCTURE VALIDATION: {', '.join(run_ids) or 'nothing new'}")
     print(f"Validation ID: {validation_id}")
-    print(f"Files: {len(targets)}\n")
+    print(
+        f"Files: {len(targets)} to validate, {len(reused)} unchanged (already validated under the current contract)\n"
+    )
 
     status_counts = Counter()
 
-    for source, file in targets:
+    for target in targets:
+        run_id, source, file = target.run_id, target.source, target.path
+
         try:
             validation = validate_source(
                 file=file,
@@ -917,6 +925,7 @@ def main() -> int:
             rows_checked=validation["row_count"],
             quarantine_path=quarantine_path,
             data_steward=data_steward(source_registry, source),
+            contract_checksum=None if is_adhoc else contract_checksum(source_registry[source], settings),
         )
 
         status_counts[validation["status"]] += 1
@@ -943,8 +952,9 @@ def main() -> int:
 
     print("\nVALIDATION SUMMARY")
     print("--------------------------------------------")
-    print(f"Run ID:            {run_id}")
+    print(f"Run ID(s):         {', '.join(run_ids) or '-'}")
     print(f"Files validated:   {len(targets)}")
+    print(f"Unchanged (reused): {len(reused)}")
     print(f"Structure valid:   {status_counts['STRUCTURE_VALID']}")
     print(f"Structure invalid: {status_counts['STRUCTURE_INVALID']}")
     print(f"Validation errors: {status_counts['VALIDATION_ERROR']}")

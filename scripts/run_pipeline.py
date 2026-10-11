@@ -371,9 +371,17 @@ def interpret_ingestion(exit_code: int, rows: list[dict]) -> tuple[str, str]:
     }.get(run["run_status"], "WARNING")
 
     if status == "SUCCESS" and run["ingested"] == "0":
-        detail += " (nothing new - re-validating latest batch)"
+        detail += " (nothing new)"
 
     return status, detail
+
+
+def reused_count(output: str) -> int:
+    """Files the validation script left alone (already validated under the current contract)."""
+
+    match = re.search(r"Unchanged \(reused\):\s+(\d+)", output)
+
+    return int(match.group(1)) if match else 0
 
 
 def interpret_validation(
@@ -381,11 +389,20 @@ def interpret_validation(
     rows: list[dict],
     valid_statuses: set[str],
     warning_statuses: set[str],
+    reused: int = 0,
 ) -> tuple[str, str]:
 
     # Exit code 1 means files failed validation; anything else
     # non-zero means the script itself failed.
-    if exit_code not in (0, 1) or not rows:
+    if exit_code not in (0, 1):
+        return "ERROR", "Validation crashed - see the pipeline log."
+
+    if not rows:
+        if exit_code == 0 and reused:
+            return "SUCCESS", (
+                f"Nothing new or changed: {reused} held file(s) already validated under the "
+                f"current contracts (not re-read)"
+            )
         return "ERROR", "Validation crashed - see the pipeline log."
 
     counts = Counter(row["status"] for row in rows)
@@ -394,7 +411,12 @@ def interpret_validation(
     warnings = sum(counts[status] for status in warning_statuses)
     invalid = len(rows) - valid - warnings
 
-    detail = f"{rows[-1]['run_id']}: {valid} valid, {warnings} with warnings, {invalid} invalid"
+    run_ids = sorted({row["run_id"] for row in rows})
+    runs = run_ids[0] if len(run_ids) == 1 else f"{len(run_ids)} runs"
+    detail = f"{runs}: {valid} valid, {warnings} with warnings, {invalid} invalid"
+
+    if reused:
+        detail += f"; {reused} unchanged (not re-read)"
 
     if invalid:
         # Invalid files are quarantined and excluded by the load gate;
@@ -694,6 +716,7 @@ class Pipeline:
             new_rows(FILE_STATUS_LOG_FILE, rows_before),
             valid_statuses,
             warning_statuses,
+            reused_count(run.output),
         )
         self.finish_step(label, status, run, detail)
 

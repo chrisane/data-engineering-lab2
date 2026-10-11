@@ -29,7 +29,7 @@ Usage:
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from check_coverage import PASSING_COVERAGE, assess_file, index_results
 from common import (
@@ -39,11 +39,14 @@ from common import (
     STRUCTURE_STAGE,
     VALIDATION_LOG_FILE,
     append_csv_rows,
+    candidate_versions,
     failure_summary,
+    is_document_set,
     latest_file_status,
     load_registry_config,
     read_log,
     read_manifest,
+    withdrawn_entry,
 )
 from validate_data import has_row_rules
 
@@ -73,23 +76,6 @@ ELIGIBILITY_FIELDS = [
 # ---------------------------------------------------------
 # VERSION SELECTION
 # ---------------------------------------------------------
-
-
-def withdrawn_entry(file_name: str, withdrawn: list[dict]) -> dict | None:
-    """The registry withdrawal entry matching a manifest file name, if any."""
-
-    path = PurePosixPath(file_name.replace("\\", "/"))
-
-    for entry in withdrawn:
-        if path.full_match(entry["pattern"]):
-            return entry
-
-    return None
-
-
-def is_document_set(source_config: dict) -> bool:
-
-    return any(character in source_config["path"] for character in "*?[")
 
 
 # Ingestion outcomes that mean a submission was refused.
@@ -123,31 +109,6 @@ def latest_rejection_after(
     ]
 
     return max(rejections, key=lambda row: row["run_id"]) if rejections else None
-
-
-def candidate_versions(
-    source: str,
-    source_config: dict,
-    manifest: list[dict],
-) -> list[dict]:
-
-    ingested = [row for row in manifest if row["source"] == source and row["status"] == "INGESTED"]
-
-    if not ingested:
-        return []
-
-    if not is_document_set(source_config):
-        return [max(ingested, key=lambda row: row["run_id"])]
-
-    latest = {}
-
-    for row in ingested:
-        name = row["file_name"]
-
-        if name not in latest or row["run_id"] > latest[name]["run_id"]:
-            latest[name] = row
-
-    return sorted(latest.values(), key=lambda row: row["file_name"])
 
 
 # ---------------------------------------------------------

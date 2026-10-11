@@ -5,11 +5,14 @@ quarantine.
 """
 
 import csv
+import hashlib
+import json
 import shutil
 import traceback
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import openpyxl
 import yaml
@@ -108,6 +111,7 @@ FILE_STATUS_FIELDS = [
     "quarantine_path",
     "data_steward",
     "validated_at",
+    "contract_checksum",
 ]
 
 
@@ -452,10 +456,13 @@ def write_file_status(
     data_steward: str | None = None,
     errors: int | None = None,
     warnings: int | None = None,
+    contract_checksum: str | None = None,
 ) -> None:
     """
     Record the outcome for one file. errors / warnings default to the
     counts in results; pass the true totals when failures were capped.
+    contract_checksum identifies the rules and code it was judged by
+    (see contract_checksum()), so an unchanged file need not be re-read.
     """
 
     logged_errors, logged_warnings = count_by_severity(results)
@@ -478,6 +485,7 @@ def write_file_status(
                 "quarantine_path": (quarantine_path.relative_to(PROJECT_ROOT).as_posix() if quarantine_path else None),
                 "data_steward": data_steward,
                 "validated_at": datetime.now().isoformat(timespec="seconds"),
+                "contract_checksum": contract_checksum,
             }
         ],
     )
@@ -720,3 +728,167 @@ def select_targets(
         raise SystemExit(f"No ingested files found for run {run_id}" + (f" and source {source}." if source else "."))
 
     return run_id, [(row["source"], raw_file_path(row)) for row in rows], False
+
+
+# ---------------------------------------------------------
+# HELD VERSIONS AND VALIDATION REUSE
+# ---------------------------------------------------------
+
+
+def withdrawn_entry(file_name: str, withdrawn: list[dict]) -> dict | None:
+    """The registry withdrawal entry matching a manifest file name, if any."""
+
+    path = PurePosixPath(file_name.replace("\\", "/"))
+
+    for entry in withdrawn:
+        if path.full_match(entry["pattern"]):
+            return entry
+
+    return None
+
+
+def is_document_set(source_config: dict) -> bool:
+
+    return any(character in source_config["path"] for character in "*?[")
+
+
+def candidate_versions(
+    source: str,
+    source_config: dict,
+    manifest: list[dict],
+) -> list[dict]:
+    """
+    The version(s) of a source the load gate decides on: the latest
+    ingested file, or for a document set the latest version of each
+    document.
+    """
+
+    ingested = [row for row in manifest if row["source"] == source and row["status"] == "INGESTED"]
+
+    if not ingested:
+        return []
+
+    if not is_document_set(source_config):
+        return [max(ingested, key=lambda row: row["run_id"])]
+
+    latest = {}
+
+    for row in ingested:
+        name = row["file_name"]
+
+        if name not in latest or row["run_id"] > latest[name]["run_id"]:
+            latest[name] = row
+
+    return sorted(latest.values(), key=lambda row: row["file_name"])
+
+
+# Code whose behaviour decides a validation outcome. A change to any of
+# these files, like a change to a source's contract, invalidates earlier
+# validations so held files are judged again.
+VALIDATION_CODE = [
+    PROJECT_ROOT / "src" / "validation" / name
+    for name in ("common.py", "validate_structure.py", "validate_data.py", "document_extraction.py")
+]
+
+
+def contract_checksum(source_config: dict, settings: dict | None = None) -> str:
+    """
+    Fingerprint of everything that decides a file's validation outcome:
+    the source's registry entry, the validation settings and the
+    validation code. A validation is reused only while it is unchanged.
+    """
+
+    digest = hashlib.sha256()
+    digest.update(json.dumps([source_config, settings or {}], sort_keys=True, default=str).encode("utf-8"))
+
+    for path in VALIDATION_CODE:
+        # Normalise line endings so a git checkout setting does not count as a change.
+        digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
+
+    return digest.hexdigest()[:16]
+
+
+@dataclass(frozen=True)
+class ValidationTarget:
+    run_id: str
+    source: str
+    path: Path
+
+
+def held_targets(registry_config: dict, manifest: list[dict], source: str | None = None) -> list[ValidationTarget]:
+    """
+    Every file version currently held for loading (what the load gate
+    decides on), excluding withdrawn files. Each keeps its own run ID.
+    """
+
+    withdrawn = registry_config.get("withdrawn_files") or []
+    targets = []
+
+    for name, config in registry_config["sources"].items():
+        if source and name != source:
+            continue
+
+        for row in candidate_versions(name, config, manifest):
+            if not withdrawn_entry(row["file_name"], withdrawn):
+                targets.append(ValidationTarget(row["run_id"], name, raw_file_path(row)))
+
+    return targets
+
+
+def reusable_validation(status_rows: list[dict], target: ValidationTarget, stage: str, checksum: str) -> dict | None:
+    """
+    The latest recorded validation of this exact file version in this
+    stage, if it was judged by the same contract and code (checksum) and
+    did not crash. Validating it again would re-read the file for the
+    same result.
+    """
+
+    latest = latest_file_status(status_rows, target.run_id, target.path.name, stage)
+
+    if latest and latest.get("contract_checksum") == checksum and latest["status"] != "VALIDATION_ERROR":
+        return latest
+
+    return None
+
+
+def plan_validation(args, stage: str, registry_config: dict) -> tuple[list[ValidationTarget], list[dict], bool]:
+    """
+    Decide which files to validate: (to_validate, reused, is_adhoc).
+
+    --file      one file outside the pipeline, always validated.
+    --run-id    that run's files; unchanged ones are reused unless --force.
+    (default)   every held version (see held_targets): new versions, and
+                versions whose contract or validation code changed, are
+                validated; the rest are reused unless --force. With
+                nothing new and nothing changed, no file is re-read.
+    """
+
+    source_registry = registry_config["sources"]
+
+    if args.file or args.run_id:
+        run_id, files, is_adhoc = select_targets(args.run_id, args.source, args.file, source_registry)
+        targets = [ValidationTarget(run_id, source, path) for source, path in files]
+    else:
+        targets = held_targets(registry_config, read_manifest(), args.source)
+        is_adhoc = False
+
+        if not targets:
+            raise SystemExit("No ingested files found. Run src/ingestion/discover_files.py first.")
+
+    if is_adhoc or args.force:
+        return targets, [], is_adhoc
+
+    status_rows = read_log(FILE_STATUS_LOG_FILE)
+    settings = registry_config.get("settings") or {}
+    to_validate, reused = [], []
+
+    for target in targets:
+        checksum = contract_checksum(source_registry[target.source], settings)
+        previous = reusable_validation(status_rows, target, stage, checksum)
+
+        if previous:
+            reused.append(previous)
+        else:
+            to_validate.append(target)
+
+    return to_validate, reused, is_adhoc

@@ -86,7 +86,26 @@ template. End to end on `RetailDataPlatform`: 31 template 2 documents (BR001-BR0
 template 1 documents loaded, all planted cash-up exceptions still detected (BR007's overage is on
 template 2), and every reconciliation control passed. Introducing templates renamed the label checks
 (now by field), so the 52 template 1 documents held from the previous run had to be re-validated once
-(see the runbook, "Changing a document template").
+by hand. Since then validation records a contract fingerprint and re-validates held versions
+automatically when a contract changes (see "Incremental validation" below).
+
+## Incremental validation and staging (2026-10-11)
+
+A run with nothing new took ~4 minutes re-reading unchanged workbooks (validation ~3 min, staging
+~6 min before its fix). Validation now covers every held file version (as the gate does), but re-reads a
+file only if it is new, its contract / the validation settings / the validation code changed (fingerprint
+`contract_checksum` in `logs/validation_file_status.csv`), or its last validation crashed; `--force`
+re-validates everything. Staging skips a version whose COMPLETED load and staged row count are recorded,
+without parsing it. Tested: 13 unit tests (`tests/test_validation_reuse.py`) and two consecutive runs
+on `RetailDataPlatform` with nothing new ingested:
+
+| Step | Before | Run 1 (no fingerprints yet: everything held re-validated once) | Run 2 |
+|---|---|---|---|
+| Structural validation | 82 s (latest batch only) | 133 s, 101 held files across 2 runs | **6 s**, 101 reused |
+| Data validation | 95 s | 134 s (BR012 still invalid) | **3 s**, 101 reused |
+| Warehouse orchestration | 31 s (after the staging fix; 77+ min before) | 30 s | 36 s |
+
+Gate (100 eligible, 1 blocked), coverage and health were identical in both runs.
 
 ## Known limitations and open items
 

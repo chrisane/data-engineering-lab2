@@ -40,18 +40,18 @@ from common import (
     DATA_STAGE,
     DEFAULT_MAX_FAILURES_PER_RULE,
     PROJECT_ROOT,
+    contract_checksum,
     data_steward,
     exception_result,
     is_blank,
     latest_raw_file_for_source,
-    load_settings,
-    load_source_registry,
+    load_registry_config,
     make_result,
     new_validation_id,
+    plan_validation,
     quarantine_file,
     read_manifest,
     read_table,
-    select_targets,
     stamp_validation_id,
     write_file_status,
     write_validation_results,
@@ -1353,33 +1353,42 @@ def main() -> int:
 
     args = parse_arguments("Validate the data quality and business rules of ingested source files.")
 
-    source_registry = load_source_registry()
+    registry_config = load_registry_config()
+    source_registry = registry_config["sources"]
+    settings = registry_config.get("settings") or {}
 
-    max_failures = load_settings().get(
+    max_failures = settings.get(
         "max_failures_per_rule",
         DEFAULT_MAX_FAILURES_PER_RULE,
     )
 
-    run_id, targets, is_adhoc = select_targets(
-        args.run_id,
-        args.source,
-        args.file,
-        source_registry,
-    )
+    targets, reused, is_adhoc = plan_validation(args, DATA_STAGE, registry_config)
 
     quarantine_enabled = not (is_adhoc or args.no_quarantine)
 
-    reference_data = ReferenceData(read_manifest(), run_id, source_registry)
+    # Reference checks use the data as it stood in each file's own run.
+    manifest = read_manifest()
+    reference_data_by_run = {}
 
     validation_id = new_validation_id(DATA_STAGE)
+    run_ids = sorted({target.run_id for target in targets})
 
-    print(f"\nDATA VALIDATION: {run_id}")
-    print(f"Validation ID: {validation_id}\n")
+    print(f"\nDATA VALIDATION: {', '.join(run_ids) or 'nothing new'}")
+    print(f"Validation ID: {validation_id}")
+    print(
+        f"Files: {len(targets)} to validate, {len(reused)} unchanged (already validated under the current contract)\n"
+    )
 
     status_counts = Counter()
 
-    for source, file in targets:
+    for target in targets:
+        run_id, source, file = target.run_id, target.source, target.path
         source_config = source_registry[source]
+
+        if run_id not in reference_data_by_run:
+            reference_data_by_run[run_id] = ReferenceData(manifest, run_id, source_registry)
+
+        reference_data = reference_data_by_run[run_id]
 
         if not has_row_rules(source_config):
             status_counts["NOT_APPLICABLE"] += 1
@@ -1439,6 +1448,7 @@ def main() -> int:
             data_steward=data_steward(source_registry, source),
             errors=validation["errors"],
             warnings=validation["warnings"],
+            contract_checksum=None if is_adhoc else contract_checksum(source_config, settings),
         )
 
         status_counts[validation["status"]] += 1
@@ -1451,7 +1461,8 @@ def main() -> int:
 
     print("\nVALIDATION SUMMARY")
     print("--------------------------------------------")
-    print(f"Run ID:                     {run_id}")
+    print(f"Run ID(s):                  {', '.join(run_ids) or '-'}")
+    print(f"Unchanged (reused):         {len(reused)}")
     print(f"Data valid:                 {status_counts['DATA_VALID']}")
     print(f"Data valid with warnings:   {status_counts['DATA_VALID_WITH_WARNINGS']}")
     print(f"Data invalid:               {status_counts['DATA_INVALID']}")

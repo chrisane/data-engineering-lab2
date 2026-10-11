@@ -17,6 +17,21 @@ metadata sync, warehouse orchestration, platform health.
 Exit codes of the pipeline: `0` success, `1` completed with warnings (for example a quarantined
 document, a partial load or a stale source), `2` failed or blocked, `130` cancelled.
 
+### What a run re-reads
+
+Validation looks at every file version currently held for loading (the latest version of each source,
+or of each document for cash-ups) and re-reads only what could give a different answer:
+
+| Situation | Validated again? |
+|---|---|
+| A new or resubmitted file | Yes |
+| The source's contract (registry entry), the validation settings or the validation code changed | Yes, every held version of that source |
+| The last validation crashed (`VALIDATION_ERROR`) | Yes |
+| Nothing changed | No: the recorded result stands, valid or invalid; the status board says "not re-read" |
+
+Force a full re-validation with `python src/validation/validate_structure.py --force` (and
+`validate_data.py --force`). Staging works the same way: an already staged version is not re-read.
+
 ## Monitoring queries (SQL Server)
 
 ```sql
@@ -114,22 +129,10 @@ Every check is reported under the canonical field name (for example `cash_sales`
 so validation coverage is identical across templates. `stg.BranchCashup.template_version` records the
 layout each document was read with.
 
-**After a contract change that adds or renames checks.** Files validated earlier (and not resubmitted)
-show `STRUCTURE_VALIDATION INCOMPLETE` at the gate, because the new checks never ran on them; the gate
-blocks them rather than assume they pass. Re-validate the run that holds them against the current
-contract, then re-run the gate and orchestration:
-
-```powershell
-python src/validation/validate_structure.py --run-id <ING-run> --source <source>
-python src/validation/validate_data.py --run-id <ING-run> --source <source>
-python src/validation/check_coverage.py --run-id <ING-run>
-python src/validation/load_eligibility.py
-python src/warehouse/orchestrator.py
-```
-
-Registering a new template version does **not** need this (the checks stay the same); adding a
-required label or a new rule does. This happened once, on 2026-10-11, when templates were introduced
-(run `ING-20261010_005857`).
+**After a contract change.** Nothing to do. Every validation records a fingerprint of the source's
+contract, the validation settings and the validation code (`contract_checksum` in
+`logs/validation_file_status.csv`). When it changes, the next run re-validates every held version of
+that source, including versions held from older runs, before the gate decides.
 
 ## Troubleshooting
 
