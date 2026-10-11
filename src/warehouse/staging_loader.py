@@ -7,7 +7,10 @@ each eligible file version:
     1. Refuse anything the load-eligibility gate did not mark ELIGIBLE.
     2. Check the RAW file is inside data/raw and its SHA-256 still
        matches the hash recorded at ingestion (evidence unchanged).
-    3. Read it with the same reader used by validation (including PDF
+    3. If a COMPLETED load of this exact version is recorded and the
+       staged row count still matches it, record SKIPPED without
+       re-reading the file (fast path for unchanged files).
+       Otherwise read it with the same reader used by validation (including PDF
        extraction), so exactly what was validated is loaded.
     4. Under an exclusive lock per staging table: if this version is
        already staged (same run, hash and row numbers) record SKIPPED;
@@ -241,6 +244,67 @@ def record_attempt(
 # ---------------------------------------------------------
 
 
+def skip_if_already_staged(
+    decision: dict, source: str, table: str, digest: str, pipeline_id: int | None
+) -> FileLoadResult | None:
+    """
+    Fast idempotent skip, before the file is parsed. A version counts as
+    already staged only when a COMPLETED load of this exact run and
+    SHA-256 is recorded and the staging table still holds exactly the
+    rows that load inserted. Anything else (no record, a partial or
+    altered load) returns None and takes the full path, which compares
+    row numbers with the file. Parsing a large workbook just to skip it
+    costs minutes and memory.
+    """
+
+    run_id = decision["run_id"]
+    connection = get_connection()
+
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT MAX(RowsInserted) FROM audit.LoadExecution
+            WHERE IngestionRunID = ? AND SourceFileHash = ? AND StagingTable = ? AND LoadStatus = 'COMPLETED'
+            """,
+            run_id,
+            digest,
+            table,
+        )
+        completed_rows = cursor.fetchone()[0]
+
+        if not completed_rows:
+            return None
+
+        cursor.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE IngestionRunID = ? AND SourceFileHash = ?",
+            run_id,
+            digest,
+        )
+        staged_rows = cursor.fetchone()[0]
+
+        if staged_rows != completed_rows:
+            return None
+
+        load_id = record_attempt(
+            connection,
+            decision,
+            source,
+            table,
+            "SKIPPED",
+            pipeline_id,
+            rows_read=staged_rows,
+            error="Already staged; completed load and staged row count match (file not re-read).",
+        )
+
+    finally:
+        connection.close()
+
+    return FileLoadResult(
+        decision.get("file") or "UNKNOWN", "SKIPPED", staged_rows, 0, load_id, "Already staged (idempotent skip)."
+    )
+
+
 def load_file(decision: dict, source: str, source_config: dict, pipeline_id: int | None = None) -> FileLoadResult:
 
     definition = staging_table(source, source_config)
@@ -265,6 +329,11 @@ def load_file(decision: dict, source: str, source_config: dict, pipeline_id: int
         raise StagingRefused(
             f"SHA-256 of {raw.name} no longer matches the ingested hash; the RAW evidence has changed since ingestion."
         )
+
+    skipped = skip_if_already_staged(decision, source, table, digest, pipeline_id)
+
+    if skipped:
+        return skipped
 
     rows = staging_rows(definition, source_config, raw)
 
