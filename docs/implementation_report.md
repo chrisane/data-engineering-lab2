@@ -10,12 +10,12 @@ exercised in its target environment**, and what is **designed or documented only
 
 | Suite | Result | Command |
 |---|---|---|
-| Unit, configuration, negative, regression, SQL standards (no database) | **316 passed** | `python -m pytest tests` |
+| Unit, configuration, negative, regression, SQL standards (no database) | **332 passed** | `python -m pytest tests` |
 | Integration on a fresh SQL Server database (`RetailDataPlatform_IT`) | **16 passed** (15 in the full 21-minute run; the lineage test failed on `dw.DimPaymentMethod`, was fixed and re-run with the schema tests: 3 passed) | `python -m pytest tests/integration -m integration -v` |
 | Lint / format | ruff: no findings; 51 files formatted | `ruff check .` / `ruff format --check .` |
 | Static security | bandit: no issues (3 reviewed `except: pass` cleanups annotated) | `bandit -q -c pyproject.toml -r src scripts` |
 | Dependency vulnerabilities | pip-audit: no known vulnerabilities | `pip-audit -r requirements.txt` |
-| Configuration validation | 21 sources, 130 data elements, 44 mappings, 67 dependencies, 129 controls, 280 rules, 372 lineage entries | `python scripts/sync_metadata.py --check` |
+| Configuration validation | 21 sources, 131 data elements, 44 mappings, 67 dependencies, 129 controls, 280 rules, 373 lineage entries | `python scripts/sync_metadata.py --check` |
 | Real database end-to-end | see "Production-database run" below | `run_pipeline.bat --keep-data` |
 
 Integration tests prove: every migration applies to an empty server; staging matches the registry
@@ -70,6 +70,23 @@ Run on the real `RetailDataPlatform` database (2026-10-11, pipeline execution 4)
 built once per run by `mart.usp_BuildReplenishmentPlan` (mapping `MART_REPLENISHMENT_PLAN`, handler
 `MART_REPLENISHMENT_PLAN`, full refresh, `WAREHOUSE_AUDIT` control, column lineage). The views keep their
 names and columns and now return in 0.13 s and 0.04 s.
+
+## Cash-up template versions (2026-10-11)
+
+Branch cash-ups can arrive on several registered layouts at once (`extraction.templates` in the
+registry), so branches can switch templates at different times. Each document's template is detected
+from its `Template Version` label (no label = the default template 1). An unregistered version, or a
+template used after its `accepted_until` date, is blocked with an actionable message. Fields keep their
+canonical names, so staging and the warehouse are unaffected; `stg.BranchCashup.template_version`
+(migration 028) records the layout used.
+
+Tested: 10 unit tests (`tests/test_cashup_templates.py`) on real PDFs, covering both templates to the
+same record, structure, coverage and business rules, unknown version, missing renamed label and retired
+template. End to end on `RetailDataPlatform`: 31 template 2 documents (BR001-BR008 from 24 Sep) and 52
+template 1 documents loaded, all planted cash-up exceptions still detected (BR007's overage is on
+template 2), and every reconciliation control passed. Introducing templates renamed the label checks
+(now by field), so the 52 template 1 documents held from the previous run had to be re-validated once
+(see the runbook, "Changing a document template").
 
 ## Known limitations and open items
 

@@ -13,6 +13,7 @@ validation contract, so the contract stays the single definition:
     identifier-like (pattern, reference or unique key) -> NVARCHAR(50)
     anything else                 -> NVARCHAR(255)
     structure.sql_types           -> explicit override per column
+    template_version (document sources with templates) -> NVARCHAR(50)
 
 Columns in required_values are NOT NULL; all others allow NULL.
 Every staging table also carries the same lineage columns.
@@ -24,6 +25,10 @@ Used by:
 """
 
 from dataclasses import dataclass
+
+# Same name as document_extraction.TEMPLATE_VERSION_COLUMN (kept here so
+# this module does not depend on the PDF library).
+TEMPLATE_VERSION_COLUMN = "template_version"
 
 LINEAGE_COLUMNS = [
     ("IngestionRunID", "VARCHAR(40)", False),
@@ -63,7 +68,13 @@ def source_columns(source_config: dict) -> list[str]:
     extraction = source_config.get("extraction")
 
     if extraction:
-        return list(extraction["fields"])
+        columns = list(extraction["fields"])
+
+        # Which registered layout each document used (see document_extraction).
+        if (extraction.get("templates") or {}).get("versions"):
+            columns.append(TEMPLATE_VERSION_COLUMN)
+
+        return columns
 
     return list((source_config.get("structure") or {}).get("required_columns") or [])
 
@@ -77,6 +88,9 @@ def sql_type(column: str, source_config: dict) -> str:
 
     if column in overrides:
         return overrides[column]
+
+    if column == TEMPLATE_VERSION_COLUMN:
+        return "NVARCHAR(50)"
 
     extraction_field = ((source_config.get("extraction") or {}).get("fields") or {}).get(column)
 

@@ -261,6 +261,7 @@ Domain: Cash Management. End-of-shift branch cash-up reports.
 | variance | Actual minus expected closing cash; negative = shortage, positive = overage. | DECIMAL(19, 2) | No |  | CONFIDENTIAL | Required; Number; = actual_closing_cash - expected_closing_cash |
 | cashier_signature | Cashier sign-off on the document. CONFIDENTIAL. | NVARCHAR(255) | Yes |  | CONFIDENTIAL (personal) |  |
 | manager_approval | Manager approval status of the cash-up. | NVARCHAR(255) | Yes |  | CONFIDENTIAL | One of ['Approved'] |
+| template_version | Registered cash-up layout the document was read with (see extraction.templates in the source registry). | NVARCHAR(50) | Yes |  | CONFIDENTIAL |  |
 
 ## chart_of_accounts (stg.ChartOfAccounts)
 

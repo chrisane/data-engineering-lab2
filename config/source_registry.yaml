@@ -797,6 +797,36 @@ sources:
         variance:              {label: Variance, type: money}
         cashier_signature:     {label: Cashier Signature}
         manager_approval:      {label: Manager Approval}
+      # Cash-up layouts accepted side by side. Branches move to a new
+      # template at different times, so every registered version is
+      # accepted until it is given an accepted_until date (last business
+      # date allowed on that layout). The labels above are template 1;
+      # a version lists only the labels it changes. Fields keep their
+      # names, so staging and the warehouse are unaffected by relabelling.
+      # Changing this block needs the data owner's approval.
+      templates:
+        version_label: Template Version
+        date_field: business_date
+        versions:
+          "1":
+            default: true            # original layout, has no version label
+            description: Original branch cash-up report.
+            in_use_from: 2026-01-01
+          "2":
+            description: >-
+              Revised cash-up report: carries a Template Version label,
+              renames the takings and banking lines and lists totals before
+              the count. Rolled out branch by branch from 2026-09-24.
+            in_use_from: 2026-09-24
+            approved_by: Head of Operations (Operations)
+            labels:
+              site_code: Branch Code
+              pos_terminal: Till Number
+              cash_sales: Cash Takings
+              card_sales: Card Takings
+              account_sales: Account Takings
+              total_sales: Total Takings
+              cash_removed: Cash Banked
       # Identifiers in the file name, checked against the document content.
       filename_fields: '^(?P<file_site_code>[A-Z]+\d{3})_(?P<file_shift_id>SHIFT-\d{6})_\d{8}_Cashup\.pdf$'
     data_rules:

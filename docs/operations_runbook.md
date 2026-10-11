@@ -91,6 +91,42 @@ batch in use. Archives go to `data/archive/staging/` with a SHA-256 recorded in
 `audit.RetentionAction`. Warehouse history, audit records and RAW evidence are never purged
 automatically; RAW retention follows each source's `retention_years` and is a manual, approved task.
 
+## Changing a document template (cash-ups)
+
+Branch cash-up PDFs are read by **label**, and several layouts can be accepted at the same time, so
+branches can move to a new template on different days. The layouts are registered in
+`config/source_registry.yaml` under `branch_cashup.extraction.templates`.
+
+| Situation | What the platform does | What to do |
+|---|---|---|
+| Fields moved or restyled, same labels | Nothing changes | Nothing |
+| New template being rolled out | Documents with an unregistered `Template Version` are **blocked** (`TEMPLATE_VERSION`, "version 'N' is not registered") | Add the version under `templates.versions` with only the labels it changes (`labels: {cash_sales: Cash Takings}`), get the data owner's approval, commit, run `python scripts/sync_metadata.py`, then re-run. Blocked documents pass on the next run |
+| A template has no version label | It is read as the `default: true` template | Only the original template should be the default |
+| A new template drops a field | The field is NULL for that template if listed in `not_captured`; if it is a required label, the check fails and names the field and template | Decide with the data owner whether the field is still required |
+| A new template adds a field | Ignored until registered | Add it to `extraction.fields`, list it under `not_captured` for older templates, and add a nullable staging column in a new migration |
+| Retiring an old template | Documents dated after its `accepted_until` are blocked with "accepted until <date>" | Set `accepted_until` on the old version once every branch has switched |
+
+Every check is reported under the canonical field name (for example `cash_sales`), whatever the label,
+so validation coverage is identical across templates. `stg.BranchCashup.template_version` records the
+layout each document was read with.
+
+**After a contract change that adds or renames checks.** Files validated earlier (and not resubmitted)
+show `STRUCTURE_VALIDATION INCOMPLETE` at the gate, because the new checks never ran on them; the gate
+blocks them rather than assume they pass. Re-validate the run that holds them against the current
+contract, then re-run the gate and orchestration:
+
+```powershell
+python src/validation/validate_structure.py --run-id <ING-run> --source <source>
+python src/validation/validate_data.py --run-id <ING-run> --source <source>
+python src/validation/check_coverage.py --run-id <ING-run>
+python src/validation/load_eligibility.py
+python src/warehouse/orchestrator.py
+```
+
+Registering a new template version does **not** need this (the checks stay the same); adding a
+required label or a new rule does. This happened once, on 2026-10-11, when templates were introduced
+(run `ING-20261010_005857`).
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |

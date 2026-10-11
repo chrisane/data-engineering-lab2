@@ -45,6 +45,13 @@ from common import (
     write_file_status,
     write_validation_results,
 )
+from document_extraction import (
+    TemplateError,
+    field_labels,
+    label_values,
+    resolve_template,
+    template_versions,
+)
 
 STAGE = STRUCTURE_STAGE
 
@@ -432,11 +439,40 @@ def validate_minimum_rows(
 # ---------------------------------------------------------
 
 
+def required_label_fields(
+    structure: dict, extraction: dict | None, version: str | None
+) -> list[tuple[str, str | None]]:
+    """
+    (field, label) for every required label of a document. The field is
+    the canonical field name where the label belongs to an extraction
+    field, so the same check is reported under the same name whatever
+    the template; the label is the one used by the given template.
+    """
+
+    required = structure.get("required_labels") or []
+
+    if not extraction:
+        return [(label, label) for label in required]
+
+    default_labels = field_labels(extraction)
+    field_by_label = {label: field for field, label in default_labels.items()}
+    labels = field_labels(extraction, version)
+
+    pairs = []
+
+    for label in required:
+        field = field_by_label.get(label)
+        pairs.append((field, labels[field]) if field else (label, label))
+
+    return pairs
+
+
 def validate_pdf_document(
     file: Path,
     run_id: str,
     source: str,
     structure: dict,
+    extraction: dict | None = None,
 ) -> list[dict]:
 
     results = []
@@ -521,8 +557,52 @@ def validate_pdf_document(
             )
         )
 
-    for label in structure.get("required_labels") or []:
-        found = f"{label}:" in text
+    found_labels = label_values(text)
+    version = None
+
+    if template_versions(extraction):
+        try:
+            version = resolve_template(found_labels, extraction)
+        except TemplateError as error:
+            versions = ", ".join(sorted(template_versions(extraction)))
+            results.append(
+                make_result(
+                    run_id=run_id,
+                    source=source,
+                    file=file,
+                    stage=STAGE,
+                    rule="TEMPLATE_VERSION",
+                    status="FAIL",
+                    severity="ERROR",
+                    actual=str(error),
+                    expected=f"A registered, accepted template version ({versions}).",
+                    message=f"Document template not accepted: {error}",
+                    recommended_action=(
+                        "Resubmit the document on an accepted template. If the business has "
+                        "introduced this layout, register it under extraction.templates in "
+                        "config/source_registry.yaml (with the data owner's approval) and re-run."
+                    ),
+                )
+            )
+            # Labels cannot be checked without knowing the layout.
+            return results
+
+        results.append(
+            make_result(
+                run_id=run_id,
+                source=source,
+                file=file,
+                stage=STAGE,
+                rule="TEMPLATE_VERSION",
+                status="PASS",
+                actual=version,
+                message=f"Document uses accepted template {version}.",
+            )
+        )
+
+    for field, label in required_label_fields(structure, extraction, version):
+        found = label is not None and (label in found_labels or f"{label}:" in text)
+        template_note = f" (template {version})" if version else ""
 
         results.append(
             make_result(
@@ -531,16 +611,25 @@ def validate_pdf_document(
                 file=file,
                 stage=STAGE,
                 rule="REQUIRED_LABEL",
-                field=label,
+                field=field,
                 status="PASS" if found else "FAIL",
                 severity=None if found else "ERROR",
                 actual=None if found else "LABEL_NOT_FOUND",
-                expected=f"{label}:",
+                expected=f"{label}:" if label else "A label for this field",
                 message=(
-                    f"Label '{label}' found." if found else f"Required label '{label}' is missing from the document."
+                    f"Label '{label}' found{template_note}."
+                    if found
+                    else (
+                        f"Required label '{label}' is missing from the document{template_note}."
+                        if label
+                        else f"Template {version} does not capture required field '{field}'."
+                    )
                 ),
                 recommended_action=(
-                    None if found else "Regenerate the document from the standard template and resubmit."
+                    None
+                    if found
+                    else "Regenerate the document from its registered template and resubmit; if the "
+                    "template itself changed, update its labels in config/source_registry.yaml."
                 ),
             )
         )
@@ -607,6 +696,7 @@ def validate_source(
             run_id=run_id,
             source=source,
             structure=structure,
+            extraction=source_config.get("extraction"),
         )
 
         return summarise(file, run_id, source, results)
@@ -711,7 +801,12 @@ def expected_structure_checks(source_config: dict) -> set[tuple[str, str]]:
         if structure.get("filename_pattern"):
             checks.add(("FILENAME_CONVENTION", ""))
 
-        checks |= {("REQUIRED_LABEL", label) for label in structure.get("required_labels") or []}
+        extraction = source_config.get("extraction")
+
+        if template_versions(extraction):
+            checks.add(("TEMPLATE_VERSION", ""))
+
+        checks |= {("REQUIRED_LABEL", field) for field, _ in required_label_fields(structure, extraction, None)}
 
         return checks
 

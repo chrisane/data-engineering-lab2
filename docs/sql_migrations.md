@@ -46,3 +46,4 @@ python scripts/migrate.py baseline --through 14          # record an existing da
 | 025 | Roles and dynamic data masking. |
 | 026 | Retention audit. |
 | 027 | Materialised replenishment plan: `mart.ReplenishmentPlan` table and `mart.usp_BuildReplenishmentPlan` (mapping `MART_REPLENISHMENT_PLAN`); `vw_ReplenishmentPlan` and `vw_SupplierReorderProposal` read the table (same names and columns, ~200 s -> <1 s). |
+| 028 | `stg.BranchCashup.template_version` (nullable): which registered cash-up template each document was read with. |

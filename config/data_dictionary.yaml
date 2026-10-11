@@ -175,6 +175,7 @@ sources:
     variance: Actual minus expected closing cash; negative = shortage, positive = overage.
     cashier_signature: "Cashier sign-off on the document. CONFIDENTIAL."
     manager_approval: Manager approval status of the cash-up.
+    template_version: Registered cash-up layout the document was read with (see extraction.templates in the source registry).
 
 reference:
   chart_of_accounts:

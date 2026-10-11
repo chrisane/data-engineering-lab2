@@ -379,6 +379,23 @@ CASHUP_VARIANCE={("BR003","2026-09-22"):-150.00,         # cash shortage
                  ("BR007","2026-09-25"):40.00}           # cash overage
 CASHUP_MISREPORTED={("BR010","2026-09-26"):-500.00}      # cash sales misreported (over-reported if under-reporting would go below zero)
 CASHUP_UNREADABLE={("BR012","2026-09-27")}               # amount not machine-readable
+# Template rollout: BR001-BR008 move to cash-up template 2 from 2026-09-24;
+# BR009-BR012 stay on template 1, so both layouts arrive side by side.
+# Template 2 adds a version label, renames lines and reorders them
+# (registry extraction.templates). Values are unchanged.
+CASHUP_V2_FROM=pd.Timestamp("2026-09-24")
+CASHUP_V2_BRANCHES={f"BR{n:03d}" for n in range(1,9)}
+CASHUP_V2_LABELS={"Site Code":"Branch Code","POS Terminal":"Till Number","Cash Sales":"Cash Takings",
+                  "Card Sales":"Card Takings","Account Sales":"Account Takings","Total Sales":"Total Takings",
+                  "Cash Removed":"Cash Banked"}
+CASHUP_V2_ORDER=["Shift ID","Site Code","Business Date","Total Sales","Cash Sales","Card Sales","Account Sales",
+                 "POS Terminal","Cashier","Opening Float","Internal Expenses","Cash Removed",
+                 "Expected Closing Cash","Actual Closing Cash","Variance","Cashier Signature","Manager Approval"]
+
+def cashup_template_2(fields):
+    """Same values on the template 2 layout (labels and order)."""
+    values=dict(fields)
+    return [("Template Version","2")]+[(CASHUP_V2_LABELS.get(label,label),values[label]) for label in CASHUP_V2_ORDER]
 cashup_rng=random.Random(SEED+1)
 cashiers=Faker("en_US"); cashiers.seed_instance(SEED+1)
 
@@ -437,6 +454,8 @@ for offset in range(CASHUP_DAYS):
                 ("Manager Approval","Approved")]
         if key in CASHUP_UNREADABLE:
             fields=[(label,"N$ 1,2O4.5O" if label=="Card Sales" else value) for label,value in fields]
+        if branch in CASHUP_V2_BRANCHES and day>=CASHUP_V2_FROM:
+            fields=cashup_template_2(fields)
         write_cashup_pdf(cashup_dir/f"{branch}_SHIFT-{shift_no:06d}_{day:%Y%m%d}_Cashup.pdf",fields)
         cashup_count+=1
 checks["cashup_documents"]=cashup_count
