@@ -7,7 +7,11 @@ reconciliation controls, comes from the meta schema (synchronised from
 config/pipeline.yaml by scripts/sync_metadata.py).
 
 For each pipeline execution:
-  1. Detect stalled executions (STARTED, no heartbeat) and mark them ABANDONED.
+  1. Detect dead executions and mark them ABANDONED. Each run holds a
+     session application lock for its lifetime; SQL Server releases it when
+     the process or its connection ends, so a STARTED run whose lock is free
+     is known to be dead (abandoned at once), while a live run in a long load
+     (no heartbeat) is never abandoned, only reported.
   2. Re-evaluate the load-eligibility gate and record the exact file version
      selected per source (audit.PipelineSourceBatch).
   3. Load validation outcomes for those versions into SQL (data-quality reporting).
@@ -24,8 +28,8 @@ Final status: COMPLETED, PARTIAL (some mappings blocked, none failed),
 FAILED or CANCELLED. Exit codes: 0, 1, 2 and 130 respectively.
 
 Every transition is committed to the audit schema as it happens, so a
-crash or a forced stop leaves an accurate record (completed by stalled-run
-detection on the next run).
+crash or a forced stop leaves an accurate record (completed by dead-run
+detection at the start of the next run).
 """
 
 from __future__ import annotations
@@ -163,26 +167,93 @@ class RunContext:
 # ---------------------------------------------------------
 
 
+def run_lock_name(pipeline_id: int) -> str:
+
+    return f"RetailDataPlatform:pipeline:{pipeline_id}"
+
+
+def hold_run_lock(pipeline_id: int):
+    """
+    Take this run's liveness lock on a dedicated connection, kept open for
+    the whole run. Returns the connection (release with release_run_lock).
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        DECLARE @result INT;
+        EXEC @result = sys.sp_getapplock @Resource = ?, @LockMode = 'Exclusive',
+             @LockOwner = 'Session', @LockTimeout = 0;
+        SELECT @result;
+        """,
+        run_lock_name(pipeline_id),
+    )
+    granted = cursor.fetchone()[0] >= 0
+    connection.commit()
+
+    if not granted:
+        connection.close()
+        raise RuntimeError(f"Could not take the liveness lock for pipeline execution {pipeline_id}.")
+
+    return connection
+
+
+def release_run_lock(connection, pipeline_id: int) -> None:
+
+    try:
+        connection.cursor().execute(
+            "EXEC sys.sp_releaseapplock @Resource = ?, @LockOwner = 'Session'", run_lock_name(pipeline_id)
+        )
+        connection.commit()
+    except Exception:  # noqa: S110 - closing the connection releases a session lock anyway  # nosec B110
+        pass
+    finally:
+        connection.close()
+
+
 def abandon_stalled(pipeline_id: int, stalled_after_minutes: int) -> int:
-    """Mark executions that stopped reporting as ABANDONED (with a reason)."""
+    """
+    Mark executions whose process has ended as ABANDONED (with a reason).
+
+    A STARTED execution is dead when its liveness lock is free: SQL Server
+    released it when the process or connection ended (Ctrl+C after the
+    audit update failed, a closed window, a crash, a reboot). A live run is
+    left alone however long its current load takes; one silent for longer
+    than stalled_after_minutes is reported, not abandoned.
+    """
 
     connection = get_connection()
 
     try:
         cursor = connection.cursor()
         cursor.execute(
-            "SELECT PipelineExecutionID, StartedAt, HeartbeatAt FROM audit.PipelineExecution "
-            "WHERE ExecutionStatus = 'STARTED' AND PipelineExecutionID <> ? "
-            "AND DATEDIFF(MINUTE, COALESCE(HeartbeatAt, StartedAt), SYSUTCDATETIME()) >= ?",
+            "SELECT PipelineExecutionID, StartedAt, HeartbeatAt, "
+            "DATEDIFF(MINUTE, COALESCE(HeartbeatAt, StartedAt), SYSUTCDATETIME()) AS SilentMinutes "
+            "FROM audit.PipelineExecution WHERE ExecutionStatus = 'STARTED' AND PipelineExecutionID <> ?",
             pipeline_id,
-            stalled_after_minutes,
         )
-        stalled = cursor.fetchall()
+        candidates = cursor.fetchall()
+        stalled = []
+
+        for row in candidates:
+            cursor.execute(
+                "SELECT APPLOCK_TEST('public', ?, 'Exclusive', 'Session')", run_lock_name(row.PipelineExecutionID)
+            )
+            if cursor.fetchone()[0] == 0:
+                if row.SilentMinutes >= stalled_after_minutes:
+                    print(
+                        f"Execution {row.PipelineExecutionID} is still running but has not reported for "
+                        f"{row.SilentMinutes} minutes (a long load, or blocked); it was not abandoned.",
+                        flush=True,
+                    )
+                continue
+            stalled.append(row)
 
         for row in stalled:
             message = (
-                f"No heartbeat for at least {stalled_after_minutes} minutes since "
-                f"{(row.HeartbeatAt or row.StartedAt):%Y-%m-%d %H:%M} UTC; the process was stopped or crashed."
+                f"The process running this execution ended without completing it (last heartbeat "
+                f"{(row.HeartbeatAt or row.StartedAt):%Y-%m-%d %H:%M} UTC): stopped, closed or crashed."
             )
             cursor.execute(
                 "UPDATE audit.MappingExecution SET ExecutionStatus = 'ABANDONED', CompletedAt = SYSUTCDATETIME(), "
@@ -710,6 +781,7 @@ ACTIONS = {
 def run_pipeline() -> int:
 
     pipeline_id = None
+    run_lock = None
     current = None  # (mapping, mapping_execution_id)
     results = Counter()
 
@@ -725,6 +797,7 @@ def run_pipeline() -> int:
             fetch=True,
         )
         print(f"PIPELINE EXECUTION ID: {pipeline_id}", flush=True)
+        run_lock = hold_run_lock(pipeline_id)
 
         abandoned = abandon_stalled(pipeline_id, int(settings.get("stalled_after_minutes", 60)))
         if abandoned:
@@ -905,6 +978,10 @@ def run_pipeline() -> int:
         print(f"SQL ORCHESTRATION {status}: {message}", file=sys.stderr, flush=True)
 
         return 130 if cancelled else 2
+
+    finally:
+        if run_lock is not None:
+            release_run_lock(run_lock, pipeline_id)
 
 
 def main() -> int:

@@ -21,7 +21,8 @@ version: "3"
 
 pipeline:
   name: RetailDataPlatform
-  # A STARTED pipeline without a heartbeat for this long is ABANDONED.
+  # A dead run (its liveness lock released) is ABANDONED at once; a live run
+  # silent for this long (a long load, or blocked) is reported, never abandoned.
   stalled_after_minutes: 60
   # Hours of tolerance per update frequency (freshness checks).
   freshness_hours:

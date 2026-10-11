@@ -48,7 +48,7 @@ actual and expected values, business impact, recommended action and the steward 
 | Transient SQL error (deadlock, timeout) | WARNING | Retried per mapping (`max_retries`, back-off); then ERROR. |
 | Mandatory reconciliation control fails | CRITICAL / ERROR | Mapping FAILED, pipeline stops. |
 | Warning control fails (for example freshness) | WARNING | Recorded; pipeline continues. |
-| Run stopped without finishing | WARNING | Marked ABANDONED at the next run; no repair needed. |
+| Run stopped without finishing | WARNING | Marked ABANDONED at the start of the next run (its liveness lock is free); no repair needed. |
 
 ## Recovery procedures
 
@@ -60,8 +60,12 @@ Nothing is half-written: each staging file and each warehouse target is committe
 2. **A source file is wrong.** Trace it, correct it at source, drop the corrected file into
    `data/incoming/`. It is ingested as a new version, validated and loaded; a correction becomes an
    update (or SCD2 version) with a change-log entry.
-3. **The process was killed / the machine restarted.** Re-run. The stale execution is marked
-   ABANDONED with an explanation; loads resume from the last committed state.
+3. **The process was killed / the window closed / the machine restarted.** Re-run. Each run holds a
+   SQL Server session lock for its lifetime, released by SQL Server when the process or connection
+   ends, so the next run marks a dead execution ABANDONED at once (no waiting period) with an
+   explanation; loads resume from the last committed state. A run that is still alive is never
+   abandoned, however long one load takes; if it has been silent longer than `stalled_after_minutes`
+   it is reported. Health shows `STALLED_EXECUTIONS CRITICAL` only until the next run starts.
 4. **Reconciliation failed.** Do not publish reports. `SELECT * FROM audit.vw_LatestReconciliation
    WHERE CheckStatus = 'FAIL'` shows observed vs expected and the action. Typical causes: missing master
    data (unknown members), a changed RAW file (hash lineage), a manual edit in the warehouse.

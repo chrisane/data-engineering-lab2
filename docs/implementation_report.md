@@ -35,7 +35,7 @@ runs are abandoned; report readers see masked personal data and cannot read stag
 | A | Approved reconciliation handlers, configurable severity and tolerance | Done (10 control types, 129 controls; non-zero tolerances must be justified) |
 | A | Mandatory failures fail the pipeline | Done (tested) |
 | A | Source-to-staging row counts, hash and version lineage, staged-vs-transformed | Done (ROW_COUNT, HASH_LINEAGE, WAREHOUSE_AUDIT, KEY_COVERAGE, MEASURE_TOTAL) |
-| A | Freshness, stalled / abandoned executions | Done (FRESHNESS control, `vw_SourceFreshness`, abandonment at run start) |
+| A | Freshness, stalled / abandoned executions | Done (FRESHNESS control, `vw_SourceFreshness`, abandonment at run start: dead runs detected by a released liveness lock, live long-running runs never abandoned) |
 | A | Monitoring views, actionable errors, retries, safe restart, recorded skips | Done (`audit.vw_*`, `audit.ExecutionError`, retry policy, idempotent loads) |
 | B | Metadata for all sources: mappings, handlers, schemas, column mappings, rules, ownership, dependencies, strategies, schedule/frequency, retention, classification, lineage, versioning | Done (config -> `meta` sync with checksum and git commit) |
 | C | All 19 sources staged, warehoused, reconciled, tested; Excel and PDF | Done |

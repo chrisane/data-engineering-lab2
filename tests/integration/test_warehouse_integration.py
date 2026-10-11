@@ -486,6 +486,41 @@ def test_stalled_execution_is_abandoned(database, first_run):
     )
 
 
+def test_live_run_is_never_abandoned_but_dead_run_is_at_once(database):
+    """A run in a long load sends no heartbeat; its liveness lock proves it is alive."""
+
+    from orchestrator import abandon_stalled, hold_run_lock, release_run_lock
+
+    connection = database()
+    cursor = connection.cursor()
+    ids = []
+    for _ in range(2):
+        cursor.execute(
+            "INSERT INTO audit.PipelineExecution (ExecutionStatus, StartedAt, HeartbeatAt) "
+            "OUTPUT INSERTED.PipelineExecutionID VALUES ('STARTED', SYSUTCDATETIME(), SYSUTCDATETIME())"
+        )
+        ids.append(cursor.fetchone()[0])
+    connection.commit()
+    connection.close()
+
+    live, dead = ids
+    lock = hold_run_lock(live)
+
+    try:
+        abandon_stalled(-1, 0)  # threshold 0: silence alone never abandons
+        status = dict(query(database, "SELECT PipelineExecutionID, ExecutionStatus FROM audit.PipelineExecution"))
+        assert status[live] == "STARTED"
+        assert status[dead] == "ABANDONED"  # no lock holder: process gone, no waiting period
+    finally:
+        release_run_lock(lock, live)
+
+    abandon_stalled(-1, 60)
+    assert (
+        query(database, "SELECT ExecutionStatus FROM audit.PipelineExecution WHERE PipelineExecutionID = ?", live)[0][0]
+        == "ABANDONED"
+    )
+
+
 def test_platform_health_view(database, first_run):
 
     checks = {r[0]: r[1] for r in query(database, "SELECT CheckName, HealthStatus FROM audit.vw_PlatformHealth")}
