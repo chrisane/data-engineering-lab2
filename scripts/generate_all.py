@@ -1,7 +1,6 @@
 from pathlib import Path
 import random
 import shutil
-from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 from faker import Faker
@@ -223,6 +222,56 @@ sale_lookup = sales_df.set_index("sale_id")[["sale_date","site_id"]].to_dict("in
 for line in sale_lines_df.itertuples():
     sale=sale_lookup[line.sale_id]
     moves.append((f"MOV{mid:08d}",sale["sale_date"],sale["site_id"],line.product_id,"SALE",-line.quantity,line.unit_cost,line.sale_id)); mid+=1
+
+# Branch replenishment: every Monday the DC transfers to each branch the
+# quantity that branch sells of each product that week, so branch stock
+# never goes negative. Each transfer is a TRANSFER_OUT at the DC and a
+# TRANSFER_IN at the branch sharing one transfer document number.
+# (Deterministic - no random calls - so no other dataset changes.)
+cost_lookup=products_df.set_index("product_id").standard_cost.to_dict()
+sale_header=sales_df.set_index("sale_id")
+weekly=(sale_lines_df.assign(
+            sale_date=pd.to_datetime(sale_lines_df.sale_id.map(sale_header.sale_date)),
+            site_id=sale_lines_df.sale_id.map(sale_header.site_id))
+        .assign(week_start=lambda d: d.sale_date-pd.to_timedelta(d.sale_date.dt.weekday,unit="D"))
+        .groupby(["week_start","site_id","product_id"],as_index=False).quantity.sum()
+        .sort_values(["week_start","site_id","product_id"]))
+# The first transfer of each product to a branch also builds a buffer of
+# three weeks' average sales, so branches hold safety stock.
+average_weekly=weekly.groupby(["site_id","product_id"]).quantity.sum()/52
+buffered=set()
+transfers=[]; tid=1
+for row in weekly.itertuples():
+    doc=f"TRF{tid:07d}"; tid+=1
+    when=max(row.week_start,START).date()
+    cost=cost_lookup[row.product_id]
+    quantity=int(row.quantity)
+    if (row.site_id,row.product_id) not in buffered:
+        quantity+=int(np.ceil(3*average_weekly[(row.site_id,row.product_id)]))
+        buffered.add((row.site_id,row.product_id))
+    transfers.append((when,"DC001",row.product_id,"TRANSFER_OUT",-quantity,cost,doc))
+    transfers.append((when,row.site_id,row.product_id,"TRANSFER_IN",quantity,cost,doc))
+
+# Opening stock at the DC: enough that DC stock never goes negative once
+# purchases and transfers are applied in date order, plus a 10% buffer.
+dc_flow=pd.DataFrame(
+    [(pd.Timestamp(m[1]),m[3],m[5]) for m in moves if m[2]=="DC001"]+
+    [(pd.Timestamp(t[0]),t[2],t[4]) for t in transfers if t[1]=="DC001"],
+    columns=["date","product_id","quantity"]).groupby(["product_id","date"]).quantity.sum()
+shipped_by_product=pd.Series(
+    [-t[4] for t in transfers if t[1]=="DC001"],
+    index=[t[2] for t in transfers if t[1]=="DC001"]).groupby(level=0).sum()
+lowest_by_product=dc_flow.groupby(level=0).cumsum().groupby(level=0).min().clip(upper=0)
+opening_qty={
+    product_id:int(-lowest_by_product.get(product_id,0))
+               +int(np.ceil(shipped_by_product.get(product_id,0)*0.10))
+    for product_id in products_df.product_id
+}
+for product_id,qty in opening_qty.items():
+    if qty>0:
+        moves.append((f"MOV{mid:08d}",START.date(),"DC001",product_id,"ADJUSTMENT",qty,cost_lookup[product_id],"OPENING-STOCK-2026")); mid+=1
+for when,site,product_id,kind,qty,cost,doc in transfers:
+    moves.append((f"MOV{mid:08d}",when,site,product_id,kind,qty,cost,doc)); mid+=1
 inventory_movements_df=pd.DataFrame(moves,columns=["movement_id","movement_date","site_id","product_id","movement_type","quantity","unit_cost","source_document_id"])
 
 # ---------- GL JOURNALS ----------
@@ -312,10 +361,92 @@ checks = {
      for row in po_df.itertuples()
  )),
  "duplicate_asset_ids":int(assets_df.asset_id.duplicated().sum()),
+ # Positions (site, product) whose running stock balance ever drops below zero.
+ "negative_stock_positions":int((inventory_movements_df
+     .assign(movement_date=pd.to_datetime(inventory_movements_df.movement_date))
+     .groupby(["site_id","product_id","movement_date"]).quantity.sum()
+     .groupby(level=[0,1]).cumsum().groupby(level=[0,1]).min()<0).sum()),
 }
+
+# ---------- BRANCH CASH-UP PDFS ----------
+# One end-of-day cash-up per branch for the week 2026-09-21 to 2026-09-27,
+# consistent with the sales above, so they can be reconciled to POS data.
+# A separate seeded generator keeps every other dataset unchanged.
+# Deliberate exceptions (documented in docs/data_generation.md):
+CASHUP_START=pd.Timestamp("2026-09-21"); CASHUP_DAYS=7
+CASHUP_MISSING={("BR005","2026-09-24")}                  # no document submitted
+CASHUP_VARIANCE={("BR003","2026-09-22"):-150.00,         # cash shortage
+                 ("BR007","2026-09-25"):40.00}           # cash overage
+CASHUP_MISREPORTED={("BR010","2026-09-26"):-500.00}      # cash sales misreported (over-reported if under-reporting would go below zero)
+CASHUP_UNREADABLE={("BR012","2026-09-27")}               # amount not machine-readable
+cashup_rng=random.Random(SEED+1)
+cashiers=Faker("en_US"); cashiers.seed_instance(SEED+1)
+
+def nad(amount, style):
+    """Format money the way branch staff type it (deliberately inconsistent)."""
+    if style=="space":   return "N$ "+f"{amount:,.2f}".replace(","," ")
+    if style=="plain":   return f"N$ {amount:.2f}"
+    return f"N$ {amount:,.2f}"
+
+def write_cashup_pdf(path, fields):
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    # invariant=1 fixes the embedded timestamps, so regenerating an
+    # unchanged document produces identical bytes (and the same hash).
+    pdf=canvas.Canvas(str(path),pagesize=A4,invariant=1); pdf.setTitle("Branch Cash-Up Report")
+    y=800; pdf.setFont("Helvetica-Bold",14); pdf.drawString(60,y,"BRANCH CASH-UP REPORT"); y-=30
+    pdf.setFont("Helvetica",11)
+    for label,value in fields:
+        pdf.drawString(60,y,f"{label}:"); y-=16
+        pdf.drawString(60,y,str(value)); y-=20
+    pdf.setFont("Helvetica-Oblique",8); pdf.drawString(60,40,"Synthetic training document - not real business data")
+    pdf.save()
+
+cashup_dir=STAGING/"cashups"; cashup_dir.mkdir()
+sales_by_day=(sales_df.assign(sale_date=pd.to_datetime(sales_df.sale_date))
+              .groupby(["site_id","sale_date","payment_method"]).total_amount.sum())
+shift_no=0; cashup_count=0
+for offset in range(CASHUP_DAYS):
+    day=CASHUP_START+pd.Timedelta(days=offset)
+    for branch in branches:
+        shift_no+=1
+        key=(branch,day.strftime("%Y-%m-%d"))
+        def takings(method,branch=branch,day=day):
+            return money(sales_by_day.get((branch,day,method),0.0))
+        cash,card,account=takings("CASH"),takings("CARD"),takings("CREDIT")
+        misreport=CASHUP_MISREPORTED.get(key,0.0)
+        if cash+misreport<0:            # cannot under-report below zero: over-report instead
+            misreport=abs(misreport)
+        reported_cash=money(cash+misreport)
+        opening_float=750.00
+        expenses=money(cashup_rng.choice([0,0,0,45.50,120.00]))
+        removed=money(max(0.0,np.floor((reported_cash-expenses)/100)*100))
+        expected=money(opening_float+reported_cash-expenses-removed)
+        actual=money(expected+CASHUP_VARIANCE.get(key,0.0))
+        if key in CASHUP_MISSING:
+            continue
+        style=cashup_rng.choice(["comma","comma","space","plain"])
+        fields=[("Shift ID",f"SHIFT-{shift_no:06d}"),("Site Code",branch),
+                ("Business Date",day.strftime("%Y-%m-%d")),("POS Terminal",f"POS-{branch}-01"),
+                ("Cashier",cashiers.name()),("Opening Float",nad(opening_float,style)),
+                ("Cash Sales",nad(reported_cash,style)),("Card Sales",nad(card,style)),
+                ("Account Sales",nad(account,style)),("Total Sales",nad(money(reported_cash+card+account),style)),
+                ("Internal Expenses",nad(expenses,style)),("Cash Removed",nad(removed,style)),
+                ("Expected Closing Cash",nad(expected,style)),("Actual Closing Cash",nad(actual,style)),
+                ("Variance",nad(money(actual-expected),style)),("Cashier Signature","Signed"),
+                ("Manager Approval","Approved")]
+        if key in CASHUP_UNREADABLE:
+            fields=[(label,"N$ 1,2O4.5O" if label=="Card Sales" else value) for label,value in fields]
+        write_cashup_pdf(cashup_dir/f"{branch}_SHIFT-{shift_no:06d}_{day:%Y%m%d}_Cashup.pdf",fields)
+        cashup_count+=1
+checks["cashup_documents"]=cashup_count
 pd.DataFrame([checks]).to_excel(STAGING/"generation_validation.xlsx",index=False)
 
 # All files written: move them into place together.
+(OUT/"cashups").mkdir(exist_ok=True)
+for staged in cashup_dir.iterdir():
+    staged.replace(OUT/"cashups"/staged.name)
+cashup_dir.rmdir()
 for staged in STAGING.iterdir():
     staged.replace(OUT/staged.name)
 STAGING.rmdir()

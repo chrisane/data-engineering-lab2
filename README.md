@@ -214,33 +214,27 @@ Planned monitoring capabilities include:
 
 ```text
 data-engineering-lab2/
-|
-|-- config/                 # Source contracts and business rules
+|-- run_pipeline.bat            # single command: the whole platform with a status board
+|-- config/
+|   |-- source_registry.yaml    # source contracts, governance, load policy, withdrawals
+|   |-- pipeline.yaml           # mappings, approved handlers, dependencies, controls, lineage
+|   |-- data_dictionary.yaml    # business definitions of every source column
+|   |-- business_rules.yaml     # business-rule parameters (VAT, thresholds, tolerances)
+|   |-- chart_of_accounts.csv, posting_rules.csv
 |-- data/
-|   |-- incoming/           # Newly received source files
-|   |-- raw/                # Preserved source evidence
-|   |-- quarantine/         # Rejected or problematic files
-|   |-- processed/          # Processed datasets
-|   |-- archive/            # Archived data
-|
+|   |-- incoming/  raw/  quarantine/  processed/  archive/
 |-- src/
-|   |-- ingestion/          # Discovery and ingestion
-|   |-- validation/         # Structure and data-quality checks
-|   |-- transformation/     # Data transformation
-|   |-- warehouse/          # Warehouse loading
-|   |-- monitoring/         # Monitoring and diagnostics
-|
-|-- sql/
-|   |-- staging/
-|   |-- warehouse/
-|   |-- maintenance/
-|
-|-- scripts/                # Data generation and utilities
-|-- tests/                  # Automated and controlled tests
-|-- docs/                   # Architecture and technical documentation
-|-- logs/                   # Ingestion and validation logs
-|-- requirements.txt
-|-- README.md
+|   |-- ingestion/              # discovery, verification, hashing, quarantine
+|   |-- validation/             # structure, data rules, PDF extraction, coverage, load gate
+|   |-- warehouse/              # migrations, metadata sync, staging loader, handlers,
+|                               # reconciliation, orchestrator
+|-- sql/                        # 001-026 versioned migrations (schemas, staging, warehouse,
+|                               # procedures, marts, monitoring, security, retention)
+|-- scripts/                    # run_pipeline, migrate, sync_metadata, trace_file,
+|                               # health_check, apply_retention, generate_docs, scheduling
+|-- tests/                      # unit, configuration, SQL standards, integration
+|-- docs/                       # architecture, design, runbook, guides, generated catalogue
+|-- .github/workflows/ci.yml    # CI: lint, security, config validation, tests
 ```
 
 ## 7. Technology Stack
@@ -397,44 +391,67 @@ python -m pytest tests
 
 ### Run the whole pipeline with a status board
 
-Double-click `run_pipeline.bat` (or run it from a terminal). It opens a separate window that runs these steps in order:
+Double-click `run_pipeline.bat` (or run it from a terminal). It opens a separate window that runs, in
+order:
 
-1. data generation
+1. data generation (asks first)
 2. ingestion
 3. structural validation
-4. data validation
+4. data validation (including PDF cash-up extraction)
 5. validation coverage
 6. load eligibility
-7. the tests
-8. SQL loading
+7. automated tests
+8. database migrations
+9. metadata sync
+10. warehouse orchestration (staging, dimensions, facts, reconciliation)
+11. platform health
 
-Each step shows its exit code, duration and a colour-coded status: green **SUCCESS**, yellow **WARNING**, red **FAILED**, **ERROR** or **BLOCKED**, and grey **SKIPPED**.
-
-SQL loading is not implemented yet, but its row shows what the load-eligibility gate would allow. It turns red **BLOCKED** when a validation failure would stop the load. When anything fails, the board shows how to trace the file.
+Each step shows its exit code, duration and a colour-coded status: green **SUCCESS**, yellow
+**WARNING**, red **FAILED**, **ERROR** or **BLOCKED**, and grey **SKIPPED**. Files that fail
+validation are quarantined and excluded (WARNING); the SQL stages are **BLOCKED** if the load gate
+holds the load (a critical source is blocked), validation coverage is incomplete or the tests fail.
 
 ```powershell
 .\run_pipeline.bat                 # asks whether to generate new data
 .\run_pipeline.bat --regenerate    # regenerate without asking
 .\run_pipeline.bat --keep-data     # keep the existing data without asking
 .\run_pipeline.bat --skip-tests
+.\run_pipeline.bat --skip-sql      # stop after the load-eligibility gate
 ```
 
-If synthetic data already exists, the pipeline asks whether to generate new data (the default is no). New data is ingested as a new batch.
+**Cancelling:** press `Ctrl+C` at any time: `w` waits for the step to finish (safest), `s` stops it
+now, `c` continues. File writes are atomic and database work is transactional, so stopping never
+leaves a half-written file or table.
 
-**Cancelling:** press `Ctrl+C` at any time. While a step is running you can choose to:
+The pipeline exits with 0 (success), 1 (warnings), 2 (failure) or 130 (cancelled). The full output of
+each step is saved to `logs/pipeline_<timestamp>.log`. Schedule it daily with
+`.\scripts\schedule_pipeline.ps1`.
 
-- `w`: wait for the step to finish, then stop (the default and the safest choice)
-- `s`: stop the step immediately
-- `c`: continue
+### Database set-up (first time)
 
-Steps that did not run are shown as **CANCELLED**. Generated data, RAW copies, quarantine copies and migrated logs are written to a temporary file first and swapped in only when complete, so stopping a step never leaves a half-written file behind.
+```powershell
+python scripts/migrate.py apply        # create the database and apply sql/001-026
+python scripts/sync_metadata.py        # load the metadata catalogue from config/
+```
 
-The pipeline exits with 0 (success), 1 (warnings), 2 (failure) or 130 (cancelled). The full output of each step is saved to `logs/pipeline_<timestamp>.log`.
+See [docs/developer_setup.md](docs/developer_setup.md) for the full guide.
 
-**Current limitations:**
+### Documentation
 
-- PDF field extraction and cash-up reconciliation are planned for Phase 6.
-- Carrying `run_id`, source file, file hash and source row number on every staging and warehouse row will be built with the SQL stage (Phases 7–8). The SQL loader must read only `ELIGIBLE` files from the latest decision in `logs/load_eligibility.csv`.
+| Document | Content |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | Architecture diagram, layers, components, decisions |
+| [docs/warehouse_design.md](docs/warehouse_design.md) | Star schemas, fact grains, SCD, corrections, late-arriving data |
+| [docs/operations_runbook.md](docs/operations_runbook.md) | Running, monitoring, recovery, troubleshooting, retention |
+| [docs/developer_setup.md](docs/developer_setup.md) | Set-up, tests, adding a new source |
+| [docs/sql_migrations.md](docs/sql_migrations.md) | Migration runner and rules |
+| [docs/cicd.md](docs/cicd.md) | CI pipeline and quality gates |
+| [docs/security.md](docs/security.md) | Roles, masking, credentials, personal data |
+| [docs/powerbi_semantic_model.md](docs/powerbi_semantic_model.md) | Semantic model, measures, dashboards, RLS |
+| [docs/fabric_dbt_integration.md](docs/fabric_dbt_integration.md) | Fabric and dbt evaluation |
+| [docs/data_generation.md](docs/data_generation.md) | Synthetic data, deliberate exceptions, findings |
+| [docs/catalogue/](docs/catalogue/) | Generated: source catalogue, data dictionary, mappings and lineage, rules |
+| [docs/implementation_report.md](docs/implementation_report.md) | Final test and implementation report |
 
 ## 9. Development Roadmap
 
@@ -444,14 +461,15 @@ The pipeline exits with 0 (success), 1 (warnings), 2 (failure) or 130 (cancelled
 | 2 | Source registry, discovery and RAW ingestion | Completed |
 | 3 | Structural validation and validation logging | Completed |
 | 4 | Row-level data-quality validation | Completed |
-| 5 | Automated validation orchestration and quarantine | Planned |
-| 6 | PDF extraction and source reconciliation | Planned |
-| 7 | Data transformation and staging | Planned |
-| 8 | Data warehouse and dimensional modelling | Planned |
-| 9 | Financial and operational reconciliation | Planned |
-| 10 | Pipeline scheduling, monitoring and alerting | Planned |
-| 11 | Semantic models and Power BI dashboards | Planned |
-| 12 | Automated testing, optimisation and production-style hardening | Planned |
+| 5 | Automated validation orchestration and quarantine | Completed |
+| 6 | PDF extraction and source reconciliation | Completed |
+| 7 | Data transformation and staging (all sources) | Completed |
+| 8 | Data warehouse and dimensional modelling | Completed |
+| 9 | Financial and operational reconciliation | Completed |
+| 10 | Pipeline scheduling, monitoring and alerting | Completed (scheduling script provided, not registered) |
+| 11 | Semantic models and Power BI dashboards | Designed (model, measures, dashboards documented; no .pbix built) |
+| 12 | Automated testing, CI/CD and hardening | Completed locally (GitHub Actions configured, not yet run in GitHub) |
+| 13 | Microsoft Fabric / dbt | Evaluated and documented; optional |
 
 ## 10. Data Governance and Engineering Principles
 

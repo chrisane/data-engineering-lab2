@@ -13,11 +13,8 @@ __pycache__/
 # ---------------------------------------------------------
 data/incoming/*.xlsx
 data/incoming/*.csv
+data/incoming/cashups/*.pdf
 data/.generating/
-
-# The cash-up PDFs have no generator in this repo yet, so they
-# stay under version control as the PDF test batch.
-!data/incoming/cashups/
 
 # ---------------------------------------------------------
 # Pipeline outputs (created when the pipeline runs)
@@ -27,6 +24,10 @@ data/quarantine/*
 data/processed/*
 data/archive/*
 !data/*/.gitkeep
+
+# Withdrawn legacy cash-up documents (see config/source_registry.yaml,
+# withdrawn_files) are kept under version control as evidence.
+!data/archive/legacy_cashups/
 
 logs/*
 !logs/.gitkeep

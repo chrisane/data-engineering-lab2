@@ -9,6 +9,12 @@ logs/pipeline_<timestamp>.log.
     python scripts/run_pipeline.py --regenerate  # regenerate without asking
     python scripts/run_pipeline.py --keep-data   # never regenerate, no question
     python scripts/run_pipeline.py --skip-tests
+    python scripts/run_pipeline.py --skip-sql    # stop after the load-eligibility gate
+
+Stages: data generation, ingestion, structural validation, data validation,
+validation coverage, load eligibility, automated tests, database
+migrations, metadata sync, warehouse orchestration (staging, warehouse,
+reconciliation) and a platform health check.
 
 Press Ctrl+C at any time to cancel. You can let the running step finish
 before stopping (safe), stop it immediately, or carry on.
@@ -29,12 +35,10 @@ import subprocess
 import sys
 import threading
 import time
-
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -51,6 +55,7 @@ CANCELLED_EXIT_CODE = 130
 # ---------------------------------------------------------
 # CONSOLE COLOURS
 # ---------------------------------------------------------
+
 
 def enable_ansi_colours() -> None:
     """Turn on ANSI colour support in the classic Windows console."""
@@ -69,7 +74,7 @@ def enable_ansi_colours() -> None:
             # ENABLE_VIRTUAL_TERMINAL_PROCESSING
             kernel32.SetConsoleMode(handle, mode.value | 0x0004)
 
-    except Exception:
+    except Exception:  # noqa: S110 - colours are cosmetic; plain text still works  # nosec B110
         pass
 
 
@@ -78,15 +83,15 @@ BOLD = "\033[1m"
 DIM = "\033[2m"
 
 COLOURS = {
-    "SUCCESS": "\033[92m",    # green
-    "WARNING": "\033[93m",    # yellow
-    "FAILED": "\033[91m",     # red
-    "ERROR": "\033[91m",      # red
-    "BLOCKED": "\033[91m",    # red
+    "SUCCESS": "\033[92m",  # green
+    "WARNING": "\033[93m",  # yellow
+    "FAILED": "\033[91m",  # red
+    "ERROR": "\033[91m",  # red
+    "BLOCKED": "\033[91m",  # red
     "CANCELLED": "\033[95m",  # magenta
-    "SKIPPED": "\033[90m",    # grey
-    "RUNNING": "\033[96m",    # cyan
-    "QUESTION": "\033[96m",   # cyan
+    "SKIPPED": "\033[90m",  # grey
+    "RUNNING": "\033[96m",  # cyan
+    "QUESTION": "\033[96m",  # cyan
 }
 
 STATUS_EXIT_CODES = {
@@ -113,6 +118,7 @@ def clear_line() -> None:
 # USER INTERACTION
 # ---------------------------------------------------------
 
+
 def is_interactive() -> bool:
 
     return sys.stdin is not None and sys.stdin.isatty()
@@ -127,13 +133,9 @@ def ask(question: str, choices: dict[str, str], default: str) -> str:
     if not is_interactive():
         return default
 
-    options = "/".join(
-        letter.upper() if letter == default else letter
-        for letter in choices
-    )
+    options = "/".join(letter.upper() if letter == default else letter for letter in choices)
 
     while True:
-
         try:
             answer = input(f"  {coloured('QUESTION', '?')} {question} [{options}] ")
         except EOFError:
@@ -183,6 +185,7 @@ def ask_how_to_cancel(label: str) -> str:
 # LOG HELPERS
 # ---------------------------------------------------------
 
+
 def read_csv_rows(path: Path) -> list[dict]:
 
     if not path.exists():
@@ -198,7 +201,6 @@ def new_rows(path: Path, rows_before: int) -> list[dict]:
 
 
 class PipelineLog:
-
     def __init__(self) -> None:
 
         LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -217,13 +219,14 @@ class PipelineLog:
 # STEP EXECUTION
 # ---------------------------------------------------------
 
+
 @dataclass
 class CommandRun:
     exit_code: int | None
     output: str
     seconds: float
-    stopped: bool = False          # killed on request
-    cancel_after: bool = False     # finished, but the user asked to stop after it
+    stopped: bool = False  # killed on request
+    cancel_after: bool = False  # finished, but the user asked to stop after it
 
 
 def kill_process_tree(process: subprocess.Popen) -> None:
@@ -256,9 +259,7 @@ def run_command(label: str, arguments: list[str]) -> CommandRun:
     environment = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
     isolation = (
-        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-        if os.name == "nt"
-        else {"start_new_session": True}
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
     )
 
     started = time.perf_counter()
@@ -290,9 +291,7 @@ def run_command(label: str, arguments: list[str]) -> CommandRun:
     stopped = False
 
     while process.poll() is None:
-
         try:
-
             elapsed = time.perf_counter() - started
 
             note = "  (stopping after this step)" if cancel_after else ""
@@ -307,7 +306,6 @@ def run_command(label: str, arguments: list[str]) -> CommandRun:
             time.sleep(0.5)
 
         except KeyboardInterrupt:
-
             choice = ask_how_to_cancel(label)
 
             if choice == "stop":
@@ -335,6 +333,7 @@ def run_command(label: str, arguments: list[str]) -> CommandRun:
 # ---------------------------------------------------------
 # Each returns (status, detail) from the step's exit code, output
 # and the log rows it wrote.
+
 
 def interpret_generation(exit_code: int, output: str) -> tuple[str, str]:
 
@@ -368,7 +367,7 @@ def interpret_ingestion(exit_code: int, rows: list[dict]) -> tuple[str, str]:
     status = {
         "COMPLETED": "SUCCESS",
         "COMPLETED_WITH_WARNINGS": "WARNING",
-        "COMPLETED_WITH_ERRORS": "FAILED",
+        "COMPLETED_WITH_ERRORS": "WARNING",  # rejected files are quarantined
     }.get(run["run_status"], "WARNING")
 
     if status == "SUCCESS" and run["ingested"] == "0":
@@ -395,14 +394,13 @@ def interpret_validation(
     warnings = sum(counts[status] for status in warning_statuses)
     invalid = len(rows) - valid - warnings
 
-    detail = (
-        f"{rows[-1]['run_id']}: {valid} valid, "
-        f"{warnings} with warnings, {invalid} invalid"
-    )
+    detail = f"{rows[-1]['run_id']}: {valid} valid, {warnings} with warnings, {invalid} invalid"
 
     if invalid:
+        # Invalid files are quarantined and excluded by the load gate;
+        # whether that stops the load (critical sources) is the gate's call.
         quarantined = sum(1 for row in rows if row.get("quarantine_path"))
-        return "FAILED", detail + f" ({quarantined} quarantined)"
+        return "WARNING", detail + f" ({quarantined} quarantined; excluded by the load gate)"
 
     if warnings:
         return "WARNING", detail
@@ -434,9 +432,7 @@ def interpret_coverage(exit_code: int, rows: list[dict]) -> tuple[str, str]:
     checks = sum(int(row["executed_checks"] or 0) for row in rows)
 
     structure_only = sum(
-        1 for row in rows
-        if row["stage"] == "DATA_VALIDATION"
-        and row["coverage_status"] == "NOT_APPLICABLE"
+        1 for row in rows if row["stage"] == "DATA_VALIDATION" and row["coverage_status"] == "NOT_APPLICABLE"
     )
 
     detail = f"{files} files, {checks} checks verified"
@@ -462,17 +458,10 @@ def interpret_eligibility(exit_code: int, rows: list[dict]) -> tuple[str, str]:
 
     counts = Counter(row["decision"] for row in rows)
 
-    detail = (
-        f"{counts['ELIGIBLE']} eligible, {counts['BLOCKED']} blocked, "
-        f"{counts['HELD']} held"
-    )
+    detail = f"{counts['ELIGIBLE']} eligible, {counts['BLOCKED']} blocked, {counts['HELD']} held"
 
     if exit_code == 2:
-
-        critical = sorted({
-            row["source"] for row in rows
-            if row["critical"] == "True" and row["decision"] == "BLOCKED"
-        })
+        critical = sorted({row["source"] for row in rows if row["critical"] == "True" and row["decision"] == "BLOCKED"})
 
         if critical:
             detail += f" - critical source blocked: {', '.join(critical)}"
@@ -492,31 +481,34 @@ STOPPED_NOTES = {
         "may be new and some old - answer 'y' to regenerate on the next run."
     ),
     "2. Ingestion": (
-        "Stopped part-way. Files already copied are recorded in the manifest; "
-        "the next run ingests the rest."
+        "Stopped part-way. Files already copied are recorded in the manifest; the next run ingests the rest."
     ),
     "3. Structural validation": (
-        "Stopped part-way. Results for this run are incomplete - run the "
-        "pipeline again to re-validate."
+        "Stopped part-way. Results for this run are incomplete - run the pipeline again to re-validate."
     ),
     "4. Data validation": (
-        "Stopped part-way. Results for this run are incomplete - run the "
-        "pipeline again to re-validate."
+        "Stopped part-way. Results for this run are incomplete - run the pipeline again to re-validate."
     ),
-    "5. Validation coverage": (
-        "Stopped part-way. No data is affected; run the pipeline again."
-    ),
-    "6. Load eligibility": (
-        "Stopped part-way. No load decision was recorded; run the pipeline "
-        "again before loading."
-    ),
+    "5. Validation coverage": ("Stopped part-way. No data is affected; run the pipeline again."),
+    "6. Load eligibility": ("Stopped part-way. No load decision was recorded; run the pipeline again before loading."),
     "7. Automated tests": "Stopped part-way. No project data is affected.",
+    "8. Database migrations": (
+        "Stopped part-way. Each migration runs in one transaction, so the interrupted "
+        "one was rolled back; run the pipeline again to apply it."
+    ),
+    "9. Metadata sync": "Stopped part-way. The sync is one transaction; run it again.",
+    "10. Warehouse orchestration": (
+        "Stopped part-way. Every load is transactional; the run is marked ABANDONED "
+        "on the next run and loads resume idempotently."
+    ),
+    "11. Platform health": "Stopped part-way. No data is affected.",
 }
 
 
 # ---------------------------------------------------------
 # STATUS BOARD
 # ---------------------------------------------------------
+
 
 def print_step_result(
     label: str,
@@ -533,8 +525,7 @@ def print_step_result(
     print(
         # Pad before colouring: escape codes would otherwise count
         # towards the column width and break the alignment.
-        f"  {label:<28} {coloured(status, f'{status:<11}')} "
-        f"{'exit ' + code:<8} {DIM}{duration:>6}{RESET}"
+        f"  {label:<28} {coloured(status, f'{status:<11}')} {'exit ' + code:<8} {DIM}{duration:>6}{RESET}"
     )
     print(f"  {DIM}{'':<28} {detail}{RESET}")
 
@@ -563,19 +554,21 @@ def print_legend() -> None:
 # PIPELINE
 # ---------------------------------------------------------
 
+
 class PipelineCancelled(Exception):
     """Raised when the user cancels; remaining steps are not run."""
 
 
 class Pipeline:
-
     def __init__(self, args: argparse.Namespace) -> None:
 
         self.args = args
         self.log = PipelineLog()
         self.results = []
         self.blocked_by = None  # label of a crashed step
-        self.gate = None        # (status, detail) of the load eligibility step
+        self.coverage = None  # status of the validation coverage step
+        self.tests = None  # status of the automated tests step
+        self.gate = None  # (status, detail) of the load eligibility step
 
     def record(self, label, status, exit_code, seconds, detail) -> None:
 
@@ -597,7 +590,10 @@ class Pipeline:
 
         if run.stopped:
             self.record(
-                label, "CANCELLED", None, run.seconds,
+                label,
+                "CANCELLED",
+                None,
+                run.seconds,
                 STOPPED_NOTES.get(label, "Stopped part-way."),
             )
             raise PipelineCancelled
@@ -608,7 +604,10 @@ class Pipeline:
 
         if self.blocked_by:
             self.record(
-                label, "SKIPPED", None, None,
+                label,
+                "SKIPPED",
+                None,
+                None,
                 f"Skipped because '{self.blocked_by}' failed.",
             )
             return True
@@ -634,7 +633,6 @@ class Pipeline:
         label = "1. Data generation"
 
         if any(INCOMING_DIR.glob("*.xlsx")):
-
             if self.args.regenerate:
                 regenerate = True
 
@@ -643,17 +641,22 @@ class Pipeline:
 
             else:
                 print(f"  {label:<28} Synthetic data already exists in data/incoming/.")
-                print(
-                    f"  {'':<28} {DIM}New data replaces it and is ingested as a "
-                    f"new batch.{RESET}"
+                print(f"  {'':<28} {DIM}New data replaces it and is ingested as a new batch.{RESET}")
+                regenerate = (
+                    ask(
+                        "Generate new data?",
+                        {"y": "yes", "n": "no"},
+                        default="n",
+                    )
+                    == "y"
                 )
-                regenerate = ask(
-                    "Generate new data?", {"y": "yes", "n": "no"}, default="n",
-                ) == "y"
 
             if not regenerate:
                 self.record(
-                    label, "SKIPPED", None, None,
+                    label,
+                    "SKIPPED",
+                    None,
+                    None,
                     "Kept the existing synthetic data.",
                 )
                 return
@@ -673,7 +676,8 @@ class Pipeline:
 
         run = self.execute(label, ["src/ingestion/discover_files.py"])
         status, detail = interpret_ingestion(
-            run.exit_code, new_rows(RUN_LOG_FILE, rows_before),
+            run.exit_code,
+            new_rows(RUN_LOG_FILE, rows_before),
         )
         self.finish_step(label, status, run, detail)
 
@@ -704,8 +708,10 @@ class Pipeline:
 
         run = self.execute(label, ["src/validation/check_coverage.py"])
         status, detail = interpret_coverage(
-            run.exit_code, new_rows(COVERAGE_LOG_FILE, rows_before),
+            run.exit_code,
+            new_rows(COVERAGE_LOG_FILE, rows_before),
         )
+        self.coverage = status
         self.finish_step(label, status, run, detail)
 
     def check_eligibility(self) -> None:
@@ -719,7 +725,8 @@ class Pipeline:
 
         run = self.execute(label, ["src/validation/load_eligibility.py"])
         status, detail = interpret_eligibility(
-            run.exit_code, new_rows(ELIGIBILITY_LOG_FILE, rows_before),
+            run.exit_code,
+            new_rows(ELIGIBILITY_LOG_FILE, rows_before),
         )
 
         self.gate = (status, detail)
@@ -736,8 +743,9 @@ class Pipeline:
 
         # Tests use their own fixtures, so they run even if an
         # earlier step failed.
-        run = self.execute(label, ["-m", "pytest", "tests", "-q"])
+        run = self.execute(label, ["-m", "pytest", "tests", "-q", "-p", "no:cacheprovider"])
         status, detail = interpret_tests(run.exit_code, run.output)
+        self.tests = status
         self.finish_step(label, status, run, detail)
 
     def steps(self) -> list[tuple[str, callable]]:
@@ -745,58 +753,132 @@ class Pipeline:
         return [
             ("1. Data generation", self.generate_data),
             ("2. Ingestion", self.ingest),
-            ("3. Structural validation", lambda: self.validate(
+            (
                 "3. Structural validation",
-                "src/validation/validate_structure.py",
-                {"STRUCTURE_VALID"},
-                set(),
-            )),
-            ("4. Data validation", lambda: self.validate(
+                lambda: self.validate(
+                    "3. Structural validation",
+                    "src/validation/validate_structure.py",
+                    {"STRUCTURE_VALID"},
+                    set(),
+                ),
+            ),
+            (
                 "4. Data validation",
-                "src/validation/validate_data.py",
-                {"DATA_VALID"},
-                {"DATA_VALID_WITH_WARNINGS"},
-            )),
+                lambda: self.validate(
+                    "4. Data validation",
+                    "src/validation/validate_data.py",
+                    {"DATA_VALID"},
+                    {"DATA_VALID_WITH_WARNINGS"},
+                ),
+            ),
             ("5. Validation coverage", self.check_coverage),
             ("6. Load eligibility", self.check_eligibility),
             ("7. Automated tests", self.test),
+            ("8. Database migrations", self.migrate),
+            ("9. Metadata sync", self.sync_metadata),
+            ("10. Warehouse orchestration", self.orchestrate),
+            ("11. Platform health", self.health),
         ]
 
-    def record_sql_step(self, cancelled: bool) -> None:
+    def sql_blocked(self, label: str) -> bool:
         """
-        SQL loading is not implemented yet, but show what the gate
-        would allow, so a failed validation is visibly blocking.
+        SQL stages run only when the load is authorised: the gate allowed a
+        full or partial load, validation coverage is complete and the tests
+        passed (or were skipped on request). Critical failures stop here.
         """
 
-        label = "8. SQL staging & warehouse"
-        pending = "Not implemented yet (roadmap phases 7-8)."
+        if self.blocked(label):
+            return True
 
-        if cancelled:
-            self.record(label, "CANCELLED", None, None, "Not run - pipeline cancelled.")
+        reasons = []
 
-        elif self.gate is None:
-            self.record(
-                label, "BLOCKED", None, None,
-                f"{pending} No load decision was made, so nothing would load.",
-            )
+        if self.gate is None or self.gate[0] in ("FAILED", "ERROR"):
+            reasons.append(f"load gate: {self.gate[1] if self.gate else 'no decision'}")
 
-        elif self.gate[0] in ("FAILED", "ERROR"):
-            self.record(
-                label, "BLOCKED", None, None,
-                f"{pending} Gate would block the load: {self.gate[1]}.",
-            )
+        if self.coverage not in ("SUCCESS", None):
+            reasons.append("validation coverage incomplete")
 
-        elif self.gate[0] == "WARNING":
-            self.record(
-                label, "SKIPPED", None, None,
-                f"{pending} Gate would allow a partial load: {self.gate[1]}.",
-            )
+        if self.tests in ("FAILED", "ERROR"):
+            reasons.append("automated tests failed")
 
-        else:
-            self.record(
-                label, "SKIPPED", None, None,
-                f"{pending} Gate would allow the load: {self.gate[1]}.",
-            )
+        if reasons:
+            self.record(label, "BLOCKED", None, None, "SQL refused - " + "; ".join(reasons) + ".")
+            self.blocked_by = label
+            return True
+
+        return False
+
+    def migrate(self) -> None:
+
+        label = "8. Database migrations"
+
+        if self.args.skip_sql:
+            self.record(label, "SKIPPED", None, None, "Skipped (--skip-sql).")
+            return
+
+        if self.sql_blocked(label):
+            return
+
+        run = self.execute(label, ["scripts/migrate.py", "apply"])
+        last = run.output.strip().splitlines()[-1] if run.output.strip() else ""
+        status = "SUCCESS" if run.exit_code == 0 else "ERROR"
+        self.finish_step(label, status, run, last or "See the pipeline log.")
+
+    def sync_metadata(self) -> None:
+
+        label = "9. Metadata sync"
+
+        if self.args.skip_sql:
+            self.record(label, "SKIPPED", None, None, "Skipped (--skip-sql).")
+            return
+
+        if self.blocked(label):
+            return
+
+        run = self.execute(label, ["scripts/sync_metadata.py"])
+        last = run.output.strip().splitlines()[-1] if run.output.strip() else ""
+        status = {0: "SUCCESS", 1: "ERROR"}.get(run.exit_code, "ERROR")
+        self.finish_step(label, status, run, last or "See the pipeline log.")
+
+    def orchestrate(self) -> None:
+
+        label = "10. Warehouse orchestration"
+
+        if self.args.skip_sql:
+            self.record(label, "SKIPPED", None, None, "Skipped (--skip-sql).")
+            return
+
+        if self.blocked(label):
+            return
+
+        run = self.execute(label, ["src/warehouse/orchestrator.py"])
+        summary = next(
+            (
+                line.split(":", 1)[1].strip()
+                for line in reversed(run.output.splitlines())
+                if line.startswith("SQL ORCHESTRATION")
+            ),
+            "See the pipeline log.",
+        )
+        status = {0: "SUCCESS", 1: "WARNING", 2: "FAILED"}.get(run.exit_code, "ERROR")
+        self.finish_step(label, status, run, summary)
+
+    def health(self) -> None:
+
+        label = "11. Platform health"
+
+        if self.args.skip_sql:
+            self.record(label, "SKIPPED", None, None, "Skipped (--skip-sql).")
+            return
+
+        if self.blocked_by == "8. Database migrations" or self.blocked_by == "9. Metadata sync":
+            self.record(label, "SKIPPED", None, None, f"Skipped because '{self.blocked_by}' failed.")
+            return
+
+        run = self.execute(label, ["scripts/health_check.py", "--summary"])
+        last = run.output.strip().splitlines()[-1] if run.output.strip() else "See the pipeline log."
+        status = {0: "SUCCESS", 1: "WARNING", 2: "FAILED"}.get(run.exit_code, "ERROR")
+        self.finish_step(label, status, run, last)
 
     # -----------------------------------------------------
     # RUN
@@ -810,12 +892,10 @@ class Pipeline:
         steps = self.steps()
 
         for index, (label, step) in enumerate(steps):
-
             try:
                 step()
 
             except (PipelineCancelled, KeyboardInterrupt, EOFError) as reason:
-
                 # KeyboardInterrupt here means Ctrl+C at a question or
                 # between steps, when nothing is running. The console
                 # echoes ^C without a newline, so start a fresh line.
@@ -825,16 +905,17 @@ class Pipeline:
                 if len(self.results) <= index:
                     self.record(label, "CANCELLED", None, None, "Cancelled before it started.")
 
-                for remaining_label, _ in steps[index + 1:]:
+                for remaining_label, _ in steps[index + 1 :]:
                     self.record(
-                        remaining_label, "CANCELLED", None, None,
+                        remaining_label,
+                        "CANCELLED",
+                        None,
+                        None,
                         "Not run - pipeline cancelled.",
                     )
 
                 cancelled = True
                 break
-
-        self.record_sql_step(cancelled)
 
         if cancelled:
             overall, exit_code = "CANCELLED", CANCELLED_EXIT_CODE
@@ -846,10 +927,7 @@ class Pipeline:
         print(f"  {BOLD}PIPELINE STATUS:{RESET} {coloured(overall)}   exit code {exit_code}")
 
         if cancelled:
-            print(
-                f"  {DIM}Cancelled safely. Completed steps are kept; run the "
-                f"pipeline again to continue.{RESET}"
-            )
+            print(f"  {DIM}Cancelled safely. Completed steps are kept; run the pipeline again to continue.{RESET}")
 
         if self.log.path.exists():
             print(f"  {DIM}Full output: {self.log.path.relative_to(PROJECT_ROOT)}{RESET}")
@@ -858,10 +936,7 @@ class Pipeline:
         print(f"  {DIM}Gate:        logs/validation_coverage.csv, logs/load_eligibility.csv{RESET}")
 
         if any(status in ("FAILED", "ERROR", "BLOCKED") for status in self.results):
-            print(
-                f"  {BOLD}Find out why a file failed:{RESET} "
-                f"python scripts/trace_file.py <file name>"
-            )
+            print(f"  {BOLD}Find out why a file failed:{RESET} python scripts/trace_file.py <file name>")
 
         print()
         print_legend()
@@ -892,6 +967,12 @@ def main() -> int:
         help="Do not run the automated tests.",
     )
 
+    parser.add_argument(
+        "--skip-sql",
+        action="store_true",
+        help="Stop after the load-eligibility gate (no database stages).",
+    )
+
     args = parser.parse_args()
 
     enable_ansi_colours()
@@ -905,5 +986,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-
     sys.exit(main())

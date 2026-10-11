@@ -8,7 +8,6 @@ from pathlib import Path
 import openpyxl
 
 import discover_files
-
 from check_coverage import assess_file, assess_stage, index_results
 from common import (
     DATA_STAGE,
@@ -20,7 +19,6 @@ from common import (
 from load_eligibility import decide
 from validate_data import ReferenceData, expected_data_checks, validate_data
 from validate_structure import expected_structure_checks, validate_source
-
 
 # ---------------------------------------------------------
 # FIXTURES
@@ -71,8 +69,13 @@ def make_workbook(path: Path, rows: list[list]) -> Path:
 def status_row(stage, status, validation_id="VAL-1", run_id="ING-1", file="po.xlsx", **extra):
 
     return {
-        "run_id": run_id, "validation_id": validation_id, "file": file,
-        "stage": stage, "status": status, "errors": "0", "warnings": "0",
+        "run_id": run_id,
+        "validation_id": validation_id,
+        "file": file,
+        "stage": stage,
+        "status": status,
+        "errors": "0",
+        "warnings": "0",
         **extra,
     }
 
@@ -80,8 +83,7 @@ def status_row(stage, status, validation_id="VAL-1", run_id="ING-1", file="po.xl
 def result_rows(checks, validation_id="VAL-1", file="po.xlsx", status="PASS"):
 
     return [
-        {"validation_id": validation_id, "file": file, "rule": rule,
-         "field": field, "status": status, "severity": None}
+        {"validation_id": validation_id, "file": file, "rule": rule, "field": field, "status": status, "severity": None}
         for rule, field in checks
     ]
 
@@ -89,6 +91,7 @@ def result_rows(checks, validation_id="VAL-1", file="po.xlsx", status="PASS"):
 # ---------------------------------------------------------
 # EXPECTED CHECKS MATCH WHAT VALIDATION REALLY RUNS
 # ---------------------------------------------------------
+
 
 def test_expected_checks_match_a_real_validation(tmp_path):
     """
@@ -115,14 +118,20 @@ def test_expected_checks_match_a_real_validation(tmp_path):
 # COVERAGE
 # ---------------------------------------------------------
 
+
 def test_coverage_complete_when_every_check_ran():
 
     expected = expected_data_checks(SOURCE)
     rows = result_rows(expected)
 
     assessment = assess_stage(
-        "purchase_orders", "po.xlsx", "ING-1", DATA_STAGE, expected,
-        [status_row(DATA_STAGE, "DATA_VALID")], index_results(rows),
+        "purchase_orders",
+        "po.xlsx",
+        "ING-1",
+        DATA_STAGE,
+        expected,
+        [status_row(DATA_STAGE, "DATA_VALID")],
+        index_results(rows),
     )
 
     assert assessment["coverage_status"] == "COMPLETE"
@@ -134,8 +143,13 @@ def test_coverage_incomplete_names_the_checks_that_did_not_run():
     rows = result_rows(expected - {("PATTERN", "po_id")})
 
     assessment = assess_stage(
-        "purchase_orders", "po.xlsx", "ING-1", DATA_STAGE, expected,
-        [status_row(DATA_STAGE, "DATA_VALID")], index_results(rows),
+        "purchase_orders",
+        "po.xlsx",
+        "ING-1",
+        DATA_STAGE,
+        expected,
+        [status_row(DATA_STAGE, "DATA_VALID")],
+        index_results(rows),
     )
 
     assert assessment["coverage_status"] == "INCOMPLETE"
@@ -147,11 +161,22 @@ def test_coverage_missing_and_unverifiable():
     expected = expected_data_checks(SOURCE)
 
     missing = assess_stage(
-        "purchase_orders", "po.xlsx", "ING-1", DATA_STAGE, expected, [], {},
+        "purchase_orders",
+        "po.xlsx",
+        "ING-1",
+        DATA_STAGE,
+        expected,
+        [],
+        {},
     )
     legacy = assess_stage(
-        "purchase_orders", "po.xlsx", "ING-1", DATA_STAGE, expected,
-        [status_row(DATA_STAGE, "DATA_VALID", validation_id="")], {},
+        "purchase_orders",
+        "po.xlsx",
+        "ING-1",
+        DATA_STAGE,
+        expected,
+        [status_row(DATA_STAGE, "DATA_VALID", validation_id="")],
+        {},
     )
 
     assert missing["coverage_status"] == "MISSING"
@@ -163,9 +188,13 @@ def test_coverage_accepts_validation_that_stopped_at_a_recorded_failure():
     rows = result_rows([("WORKBOOK_READABLE", "")], status="FAIL")
 
     assessment = assess_stage(
-        "purchase_orders", "po.xlsx", "ING-1", STRUCTURE_STAGE,
+        "purchase_orders",
+        "po.xlsx",
+        "ING-1",
+        STRUCTURE_STAGE,
         expected_structure_checks(SOURCE),
-        [status_row(STRUCTURE_STAGE, "STRUCTURE_INVALID")], index_results(rows),
+        [status_row(STRUCTURE_STAGE, "STRUCTURE_INVALID")],
+        index_results(rows),
     )
 
     assert assessment["coverage_status"] == "STOPPED_AT_FAILURE"
@@ -177,7 +206,10 @@ def test_sources_without_data_rules_are_reported_as_structure_only():
     rows = result_rows([("PDF_READABLE", "")], file="a.pdf")
 
     assessments = assess_file(
-        "branch_cashup", "a.pdf", "ING-1", pdf_source,
+        "branch_cashup",
+        "a.pdf",
+        "ING-1",
+        pdf_source,
         [status_row(STRUCTURE_STAGE, "STRUCTURE_VALID", file="a.pdf")],
         index_results(rows),
     )
@@ -200,9 +232,7 @@ LIGHT_SOURCE = {
 def light_registry(*names, critical=()):
 
     return {
-        "sources": {
-            name: {**LIGHT_SOURCE, "path": f"{name}.xlsx"} for name in names
-        },
+        "sources": {name: {**LIGHT_SOURCE, "path": f"{name}.xlsx"} for name in names},
         "load_policy": {
             "eligible_structure_statuses": ["STRUCTURE_VALID"],
             "eligible_data_statuses": ["DATA_VALID", "DATA_VALID_WITH_WARNINGS"],
@@ -214,9 +244,14 @@ def light_registry(*names, critical=()):
 def ingested(source, run_id="ING-1", status="INGESTED", message=None):
 
     return {
-        "run_id": run_id, "source": source, "file_name": f"{source}.xlsx",
-        "file_hash": "abc", "ingested_at": "2026-10-09", "status": status,
-        "raw_path": f"data/raw/{run_id}/{source}.xlsx", "message": message,
+        "run_id": run_id,
+        "source": source,
+        "file_name": f"{source}.xlsx",
+        "file_hash": "abc",
+        "ingested_at": "2026-10-09",
+        "status": status,
+        "raw_path": f"data/raw/{run_id}/{source}.xlsx",
+        "message": message,
     }
 
 
@@ -228,19 +263,25 @@ def validated(source, data_status="DATA_VALID", run_id="ING-1", failures=()):
 
     statuses = [
         status_row(STRUCTURE_STAGE, "STRUCTURE_VALID", structure_id, run_id, file),
-        status_row(DATA_STAGE, data_status, data_id, run_id, file,
-                   errors=str(len(failures))),
+        status_row(DATA_STAGE, data_status, data_id, run_id, file, errors=str(len(failures))),
     ]
 
     results = result_rows(expected_structure_checks(LIGHT_SOURCE), structure_id, file)
     results += result_rows(expected_data_checks(LIGHT_SOURCE), data_id, file)
 
     for row_number in failures:
-        results.append({
-            "validation_id": data_id, "file": file, "rule": "REQUIRED_VALUE",
-            "field": "id", "status": "FAIL", "severity": "ERROR",
-            "row_number": str(row_number), "message": "Required field 'id' is blank.",
-        })
+        results.append(
+            {
+                "validation_id": data_id,
+                "file": file,
+                "rule": "REQUIRED_VALUE",
+                "field": "id",
+                "status": "FAIL",
+                "severity": "ERROR",
+                "row_number": str(row_number),
+                "message": "Required field 'id' is blank.",
+            }
+        )
 
     return statuses, results
 
@@ -274,12 +315,14 @@ def test_blocked_critical_source_holds_everything_else():
     good_status, good_results = validated("products")
     bad_status, bad_results = validated("ledger", "DATA_INVALID", failures=[3])
 
-    decisions = decisions_by_source(decide(
-        light_registry("products", "ledger", critical=["ledger"]),
-        [ingested("products"), ingested("ledger")],
-        good_status + bad_status,
-        good_results + bad_results,
-    ))
+    decisions = decisions_by_source(
+        decide(
+            light_registry("products", "ledger", critical=["ledger"]),
+            [ingested("products"), ingested("ledger")],
+            good_status + bad_status,
+            good_results + bad_results,
+        )
+    )
 
     assert decisions["ledger"]["decision"] == "BLOCKED"
     assert decisions["products"]["decision"] == "HELD"
@@ -292,8 +335,7 @@ def test_newer_rejected_submission_blocks_the_older_valid_version():
 
     manifest = [
         ingested("sites", "ING-1"),
-        ingested("sites", "ING-2", status="INVALID_CONTENT",
-                 message="File content is not a valid .xlsx file."),
+        ingested("sites", "ING-2", status="INVALID_CONTENT", message="File content is not a valid .xlsx file."),
     ]
 
     decision = decide(light_registry("sites"), manifest, statuses, results)[0]
@@ -330,6 +372,7 @@ def test_incomplete_validation_blocks_an_otherwise_valid_file():
 # CRASH DIAGNOSTICS
 # ---------------------------------------------------------
 
+
 def raise_inside_project():
     raise ValueError("bad cell")
 
@@ -363,6 +406,7 @@ def test_failure_summary_counts_and_locates_errors():
 # INGESTION TRACEABILITY
 # ---------------------------------------------------------
 
+
 def test_ingestion_errors_and_ignored_files_are_recorded(tmp_path, monkeypatch):
 
     incoming = tmp_path / "incoming"
@@ -384,7 +428,10 @@ def test_ingestion_errors_and_ignored_files_are_recorded(tmp_path, monkeypatch):
         raise PermissionError("file is locked by another program")
     except PermissionError as error:
         failed = discover_files.record_ingestion_error(
-            incoming / "sites.xlsx", "ING-1", registry, error,
+            incoming / "sites.xlsx",
+            "ING-1",
+            registry,
+            error,
         )
 
     assert failed["status"] == "INGESTION_ERROR"

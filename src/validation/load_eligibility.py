@@ -16,6 +16,8 @@ Decision per file
     ELIGIBLE  passed validation and every configured check ran
     BLOCKED   not validated, failed validation, or validation incomplete
     HELD      valid, but a critical source is blocked, so nothing loads
+    WITHDRAWN formally withdrawn in the registry (withdrawn_files); never
+              loaded, and not counted as a failure
 
 Exit codes: 0 = all eligible, 1 = some files blocked (the rest can
 load), 2 = load held because a critical source is blocked.
@@ -25,10 +27,9 @@ Usage:
 """
 
 import sys
-
 from collections import Counter, defaultdict
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from check_coverage import PASSING_COVERAGE, assess_file, index_results
 from common import (
@@ -45,7 +46,6 @@ from common import (
     read_manifest,
 )
 from validate_data import has_row_rules
-
 
 ELIGIBILITY_FIELDS = [
     "decision_id",
@@ -74,6 +74,19 @@ ELIGIBILITY_FIELDS = [
 # VERSION SELECTION
 # ---------------------------------------------------------
 
+
+def withdrawn_entry(file_name: str, withdrawn: list[dict]) -> dict | None:
+    """The registry withdrawal entry matching a manifest file name, if any."""
+
+    path = PurePosixPath(file_name.replace("\\", "/"))
+
+    for entry in withdrawn:
+        if path.full_match(entry["pattern"]):
+            return entry
+
+    return None
+
+
 def is_document_set(source_config: dict) -> bool:
 
     return any(character in source_config["path"] for character in "*?[")
@@ -101,7 +114,8 @@ def latest_rejection_after(
     """
 
     rejections = [
-        row for row in manifest
+        row
+        for row in manifest
         if row["source"] == source
         and row["status"] in REJECTED_INGESTION_STATUSES
         and row["run_id"] > after_run_id
@@ -117,10 +131,7 @@ def candidate_versions(
     manifest: list[dict],
 ) -> list[dict]:
 
-    ingested = [
-        row for row in manifest
-        if row["source"] == source and row["status"] == "INGESTED"
-    ]
+    ingested = [row for row in manifest if row["source"] == source and row["status"] == "INGESTED"]
 
     if not ingested:
         return []
@@ -131,7 +142,6 @@ def candidate_versions(
     latest = {}
 
     for row in ingested:
-
         name = row["file_name"]
 
         if name not in latest or row["run_id"] > latest[name]["run_id"]:
@@ -143,6 +153,7 @@ def candidate_versions(
 # ---------------------------------------------------------
 # DECISIONS
 # ---------------------------------------------------------
+
 
 def decide_version(
     manifest_row: dict,
@@ -193,7 +204,8 @@ def decide_version(
     # 0. A newer submission was rejected at ingestion, so this version
     #    is stale and must not be loaded in its place.
     rejection = latest_rejection_after(
-        manifest, source,
+        manifest,
+        source,
         None if not is_document_set(source_config) else manifest_row["file_name"],
         run_id,
     )
@@ -211,30 +223,28 @@ def decide_version(
         return blocked(f"Not validated: no structural validation result for run {run_id}.")
 
     if structure["status"] not in policy["eligible_structure_statuses"]:
-        return blocked(
-            f"Failed structural validation ({structure['status']}): {why(structure)}."
-        )
+        return blocked(f"Failed structural validation ({structure['status']}): {why(structure)}.")
 
     # 2. Data rules
     if applies_data_rules:
-
         if data is None:
             return blocked(f"Not validated: no data validation result for run {run_id}.")
 
         if data["status"] not in policy["eligible_data_statuses"]:
-            return blocked(
-                f"Failed data validation ({data['status']}, {data['errors']} "
-                f"error(s)): {why(data)}."
-            )
+            return blocked(f"Failed data validation ({data['status']}, {data['errors']} error(s)): {why(data)}.")
 
     # 3. Coverage: a pass only counts if every configured check ran.
     for assessment in assess_file(
-        source, file_name, run_id, source_config, status_rows, results_index,
+        source,
+        file_name,
+        run_id,
+        source_config,
+        status_rows,
+        results_index,
     ):
         if assessment["coverage_status"] not in PASSING_COVERAGE:
             return blocked(
-                f"Validation incomplete ({assessment['stage']} "
-                f"{assessment['coverage_status']}): {assessment['detail']}"
+                f"Validation incomplete ({assessment['stage']} {assessment['coverage_status']}): {assessment['detail']}"
             )
 
     if not applies_data_rules:
@@ -256,6 +266,7 @@ def decide(
 ) -> list[dict]:
 
     sources = registry_config["sources"]
+    withdrawn = registry_config.get("withdrawn_files") or []
     policy = registry_config["load_policy"]
     critical_sources = set(policy.get("critical_sources") or [])
 
@@ -264,11 +275,9 @@ def decide(
     decisions = []
 
     for source, source_config in sources.items():
-
         versions = candidate_versions(source, source_config, manifest)
 
         if not versions:
-
             governance = source_config.get("governance") or {}
 
             attempts = [row for row in manifest if row["source"] == source]
@@ -281,41 +290,67 @@ def decide(
                     f"{last['status']}: {last.get('message') or 'no reason recorded'}"
                 )
             else:
-                reason = (
-                    "No file has been ingested and no submission was "
-                    "received for this source."
-                )
+                reason = "No file has been ingested and no submission was received for this source."
 
-            decisions.append({
-                "source": source,
-                "file": Path(attempts[-1]["file_name"]).name if attempts else None,
-                "run_id": attempts[-1]["run_id"] if attempts else None,
-                "classification": governance.get("classification"),
-                "data_steward": governance.get("data_steward"),
-                "decision": "BLOCKED",
-                "reason": reason,
-            })
+            decisions.append(
+                {
+                    "source": source,
+                    "file": Path(attempts[-1]["file_name"]).name if attempts else None,
+                    "run_id": attempts[-1]["run_id"] if attempts else None,
+                    "classification": governance.get("classification"),
+                    "data_steward": governance.get("data_steward"),
+                    "decision": "BLOCKED",
+                    "reason": reason,
+                }
+            )
             continue
 
         for row in versions:
-            decisions.append(decide_version(
-                row, source, source_config, policy, manifest,
-                status_rows, results_index,
-            ))
+            withdrawal = withdrawn_entry(row["file_name"], withdrawn)
+
+            if withdrawal:
+                governance = source_config.get("governance") or {}
+                decisions.append(
+                    {
+                        "source": source,
+                        "file": Path(row["file_name"]).name,
+                        "raw_path": row["raw_path"],
+                        "run_id": row["run_id"],
+                        "file_hash": row["file_hash"],
+                        "ingested_at": row["ingested_at"],
+                        "classification": governance.get("classification"),
+                        "data_steward": governance.get("data_steward"),
+                        "decision": "WITHDRAWN",
+                        "reason": (
+                            f"Withdrawn {withdrawal.get('withdrawn_on')} "
+                            f"(approved by {withdrawal.get('approved_by')}): "
+                            f"{' '.join(str(withdrawal.get('reason', '')).split())}"
+                        ),
+                    }
+                )
+                continue
+
+            decisions.append(
+                decide_version(
+                    row,
+                    source,
+                    source_config,
+                    policy,
+                    manifest,
+                    status_rows,
+                    results_index,
+                )
+            )
 
     for decision in decisions:
         decision["critical"] = decision["source"] in critical_sources
 
-    blocked_critical = sorted({
-        decision["source"]
-        for decision in decisions
-        if decision["critical"] and decision["decision"] == "BLOCKED"
-    })
+    blocked_critical = sorted(
+        {decision["source"] for decision in decisions if decision["critical"] and decision["decision"] == "BLOCKED"}
+    )
 
     if blocked_critical:
-
         for decision in decisions:
-
             if decision["decision"] == "ELIGIBLE":
                 decision["decision"] = "HELD"
                 decision["reason"] = (
@@ -330,6 +365,7 @@ def decide(
 # ---------------------------------------------------------
 # COMMAND LINE
 # ---------------------------------------------------------
+
 
 def main() -> int:
 
@@ -356,11 +392,10 @@ def main() -> int:
     for decision in decisions:
         by_source[decision["source"]].append(decision)
 
-    print(f"\nLOAD ELIGIBILITY")
+    print("\nLOAD ELIGIBILITY")
     print(f"Decision ID: {decision_id}\n")
 
     for source, source_decisions in by_source.items():
-
         source_counts = Counter(d["decision"] for d in source_decisions)
         critical = " [critical]" if source_decisions[0]["critical"] else ""
 
@@ -380,13 +415,11 @@ def main() -> int:
     print(f"Eligible: {counts['ELIGIBLE']}")
     print(f"Blocked:  {counts['BLOCKED']}")
     print(f"Held:     {counts['HELD']}")
+    print(f"Withdrawn: {counts['WITHDRAWN']}")
     print(f"Log:      logs/load_eligibility.csv ({decision_id})")
 
     if counts["HELD"] or (counts["BLOCKED"] and not counts["ELIGIBLE"]):
-        print(
-            "Load:     HELD - nothing will be loaded (a critical source is "
-            "blocked, or no file is eligible)."
-        )
+        print("Load:     HELD - nothing will be loaded (a critical source is blocked, or no file is eligible).")
         print("Trace:    python scripts/trace_file.py <file name>")
         return 2
 
@@ -400,5 +433,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-
     sys.exit(main())

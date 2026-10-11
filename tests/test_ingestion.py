@@ -1,12 +1,10 @@
 import csv
-
 from pathlib import Path
 
 import openpyxl
 import pytest
 
 import discover_files
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TEST_DATA = PROJECT_ROOT / "tests" / "test_data"
@@ -57,18 +55,15 @@ def ingest(file: Path, run_id: str, hashes: dict) -> dict:
 
 def test_identify_source_matches_whole_relative_path(pipeline):
 
-    assert discover_files.identify_source(
-        pipeline / "supplier_master.xlsx", REGISTRY
-    ) == "supplier_master"
+    assert discover_files.identify_source(pipeline / "supplier_master.xlsx", REGISTRY) == "supplier_master"
 
-    assert discover_files.identify_source(
-        pipeline / "cashups" / "S001_SHIFT-000001_20260921_Cashup.pdf", REGISTRY
-    ) == "branch_cashup"
+    assert (
+        discover_files.identify_source(pipeline / "cashups" / "S001_SHIFT-000001_20260921_Cashup.pdf", REGISTRY)
+        == "branch_cashup"
+    )
 
     # A file in an unexpected sub-folder is not silently accepted.
-    assert discover_files.identify_source(
-        pipeline / "old" / "supplier_master.xlsx", REGISTRY
-    ) is None
+    assert discover_files.identify_source(pipeline / "old" / "supplier_master.xlsx", REGISTRY) is None
 
 
 def test_valid_file_is_ingested_then_detected_as_duplicate(pipeline, tmp_path):
@@ -148,6 +143,4 @@ def test_manifest_header_upgrade_keeps_existing_rows(pipeline, tmp_path):
 
     rows = read_manifest(manifest)
     assert list(rows[0]) == discover_files.MANIFEST_FIELDS
-    assert discover_files.load_ingested_hashes() == {
-        "abc": "ING-0/supplier_master.xlsx"
-    }
+    assert discover_files.load_ingested_hashes() == {"abc": "ING-0/supplier_master.xlsx"}

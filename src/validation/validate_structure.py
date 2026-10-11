@@ -22,13 +22,11 @@ import argparse
 import csv
 import re
 import sys
-
 from collections import Counter
 from itertools import islice
 from pathlib import Path
 
 import openpyxl
-
 from pypdf import PdfReader
 
 from common import (
@@ -48,13 +46,13 @@ from common import (
     write_validation_results,
 )
 
-
 STAGE = STRUCTURE_STAGE
 
 
 # ---------------------------------------------------------
 # FILE INSPECTION
 # ---------------------------------------------------------
+
 
 def count_data_rows(
     rows,
@@ -66,10 +64,7 @@ def count_data_rows(
     large file to the end.
     """
 
-    non_blank = (
-        row for row in rows
-        if not all(is_blank(value) for value in row)
-    )
+    non_blank = (row for row in rows if not all(is_blank(value) for value in row))
 
     return sum(1 for _ in islice(non_blank, row_limit))
 
@@ -91,7 +86,6 @@ def inspect_workbook(
     )
 
     try:
-
         sheet_names = workbook.sheetnames
 
         if sheet_name not in sheet_names:
@@ -103,10 +97,7 @@ def inspect_workbook(
 
         rows = workbook[sheet_name].iter_rows(values_only=True)
 
-        headers = [
-            header.strip() if isinstance(header, str) else header
-            for header in next(rows, ())
-        ]
+        headers = [header.strip() if isinstance(header, str) else header for header in next(rows, ())]
 
         row_count = count_data_rows(rows, row_limit)
 
@@ -131,7 +122,6 @@ def inspect_csv(
         newline="",
         encoding="utf-8-sig",
     ) as csv_file:
-
         reader = csv.reader(csv_file)
 
         headers = [header.strip() for header in next(reader, [])]
@@ -147,6 +137,7 @@ def inspect_csv(
 # ---------------------------------------------------------
 # TABULAR CHECKS
 # ---------------------------------------------------------
+
 
 def validate_readable(
     file: Path,
@@ -165,15 +156,11 @@ def validate_readable(
     rule = "WORKBOOK_READABLE" if is_excel else "FILE_READABLE"
 
     try:
-
         inspection = (
-            inspect_workbook(file, structure.get("sheet"), row_limit)
-            if is_excel
-            else inspect_csv(file, row_limit)
+            inspect_workbook(file, structure.get("sheet"), row_limit) if is_excel else inspect_csv(file, row_limit)
         )
 
     except Exception as error:
-
         kind = "an Excel workbook" if is_excel else "a UTF-8 CSV file"
 
         return make_result(
@@ -203,10 +190,7 @@ def validate_readable(
         rule=rule,
         status="PASS",
         message="File opened successfully.",
-        actual=(
-            f"Sheets found: {inspection['sheets']}"
-            if is_excel else None
-        ),
+        actual=(f"Sheets found: {inspection['sheets']}" if is_excel else None),
     ), inspection
 
 
@@ -222,7 +206,6 @@ def validate_required_sheet(
     actual_sheets = inspection["sheets"]
 
     if expected_sheet in actual_sheets:
-
         return make_result(
             run_id=run_id,
             source=source,
@@ -247,10 +230,7 @@ def validate_required_sheet(
         actual=actual_sheets,
         expected=expected_sheet,
         message=f"Required worksheet '{expected_sheet}' is missing.",
-        recommended_action=(
-            f"Add or restore worksheet '{expected_sheet}' "
-            f"and resubmit the file."
-        ),
+        recommended_action=(f"Add or restore worksheet '{expected_sheet}' and resubmit the file."),
     )
 
 
@@ -269,46 +249,45 @@ def validate_required_columns(
     actual_columns = inspection["headers"]
 
     for column in required_columns:
-
         if column in actual_columns:
-
-            results.append(make_result(
-                run_id=run_id,
-                source=source,
-                file=file,
-                sheet=sheet,
-                row_number=1,
-                stage=STAGE,
-                rule="REQUIRED_COLUMN",
-                field=column,
-                status="PASS",
-                actual=column,
-                expected=column,
-                message=f"Required column '{column}' exists.",
-            ))
+            results.append(
+                make_result(
+                    run_id=run_id,
+                    source=source,
+                    file=file,
+                    sheet=sheet,
+                    row_number=1,
+                    stage=STAGE,
+                    rule="REQUIRED_COLUMN",
+                    field=column,
+                    status="PASS",
+                    actual=column,
+                    expected=column,
+                    message=f"Required column '{column}' exists.",
+                )
+            )
 
         else:
-
-            results.append(make_result(
-                run_id=run_id,
-                source=source,
-                file=file,
-                sheet=sheet,
-                row_number=1,
-                stage=STAGE,
-                rule="REQUIRED_COLUMN",
-                field=column,
-                status="FAIL",
-                severity="ERROR",
-                actual="COLUMN_NOT_FOUND",
-                expected=column,
-                message=f"Required column '{column}' is missing.",
-                recommended_action=(
-                    f"Add or restore the required column "
-                    f"'{column}' in the header row and resubmit "
-                    f"the file."
-                ),
-            ))
+            results.append(
+                make_result(
+                    run_id=run_id,
+                    source=source,
+                    file=file,
+                    sheet=sheet,
+                    row_number=1,
+                    stage=STAGE,
+                    rule="REQUIRED_COLUMN",
+                    field=column,
+                    status="FAIL",
+                    severity="ERROR",
+                    actual="COLUMN_NOT_FOUND",
+                    expected=column,
+                    message=f"Required column '{column}' is missing.",
+                    recommended_action=(
+                        f"Add or restore the required column '{column}' in the header row and resubmit the file."
+                    ),
+                )
+            )
 
     return results
 
@@ -335,85 +314,72 @@ def validate_column_layout(
     named_headers = [header for header in headers if not is_blank(header)]
 
     for column, count in Counter(named_headers).items():
-
         if count > 1:
-
-            results.append(make_result(
-                run_id=run_id,
-                source=source,
-                file=file,
-                sheet=sheet,
-                row_number=1,
-                stage=STAGE,
-                rule="DUPLICATE_COLUMN",
-                field=column,
-                status="FAIL",
-                severity="ERROR",
-                actual=f"{count} columns named '{column}'",
-                expected="Each column name appears once.",
-                message=f"Column '{column}' appears {count} times.",
-                recommended_action=(
-                    f"Remove or rename the duplicate '{column}' "
-                    f"columns and resubmit the file."
-                ),
-            ))
-
-    if required_columns:
-
-        for column in dict.fromkeys(named_headers):
-
-            if column not in required_columns:
-
-                results.append(make_result(
+            results.append(
+                make_result(
                     run_id=run_id,
                     source=source,
                     file=file,
                     sheet=sheet,
                     row_number=1,
                     stage=STAGE,
-                    rule="UNEXPECTED_COLUMN",
+                    rule="DUPLICATE_COLUMN",
                     field=column,
                     status="FAIL",
-                    severity="WARNING",
-                    actual=column,
-                    expected=f"One of {required_columns}",
-                    message=(
-                        f"Column '{column}' is not defined in the "
-                        f"source contract."
-                    ),
-                    recommended_action=(
-                        "Confirm whether the source layout changed. "
-                        "If the column is legitimate, add it to the "
-                        "source registry."
-                    ),
-                ))
+                    severity="ERROR",
+                    actual=f"{count} columns named '{column}'",
+                    expected="Each column name appears once.",
+                    message=f"Column '{column}' appears {count} times.",
+                    recommended_action=(f"Remove or rename the duplicate '{column}' columns and resubmit the file."),
+                )
+            )
 
-    blank_positions = [
-        position
-        for position, header in enumerate(headers, start=1)
-        if is_blank(header)
-    ]
+    if required_columns:
+        for column in dict.fromkeys(named_headers):
+            if column not in required_columns:
+                results.append(
+                    make_result(
+                        run_id=run_id,
+                        source=source,
+                        file=file,
+                        sheet=sheet,
+                        row_number=1,
+                        stage=STAGE,
+                        rule="UNEXPECTED_COLUMN",
+                        field=column,
+                        status="FAIL",
+                        severity="WARNING",
+                        actual=column,
+                        expected=f"One of {required_columns}",
+                        message=(f"Column '{column}' is not defined in the source contract."),
+                        recommended_action=(
+                            "Confirm whether the source layout changed. "
+                            "If the column is legitimate, add it to the "
+                            "source registry."
+                        ),
+                    )
+                )
+
+    blank_positions = [position for position, header in enumerate(headers, start=1) if is_blank(header)]
 
     if blank_positions:
-
-        results.append(make_result(
-            run_id=run_id,
-            source=source,
-            file=file,
-            sheet=sheet,
-            row_number=1,
-            stage=STAGE,
-            rule="BLANK_COLUMN_HEADER",
-            status="FAIL",
-            severity="WARNING",
-            actual=f"Blank header in column position(s) {blank_positions}",
-            expected="Every column has a header.",
-            message="One or more columns have no header.",
-            recommended_action=(
-                "Name or remove the unnamed columns. Values in them "
-                "are ignored by validation."
-            ),
-        ))
+        results.append(
+            make_result(
+                run_id=run_id,
+                source=source,
+                file=file,
+                sheet=sheet,
+                row_number=1,
+                stage=STAGE,
+                rule="BLANK_COLUMN_HEADER",
+                status="FAIL",
+                severity="WARNING",
+                actual=f"Blank header in column position(s) {blank_positions}",
+                expected="Every column has a header.",
+                message="One or more columns have no header.",
+                recommended_action=("Name or remove the unnamed columns. Values in them are ignored by validation."),
+            )
+        )
 
     return results
 
@@ -430,7 +396,6 @@ def validate_minimum_rows(
     row_count = inspection["row_count"]
 
     if row_count >= minimum_rows:
-
         return make_result(
             run_id=run_id,
             source=source,
@@ -455,13 +420,9 @@ def validate_minimum_rows(
         severity="ERROR",
         actual=row_count,
         expected=f">= {minimum_rows}",
-        message=(
-            f"File contains {row_count} data rows; "
-            f"at least {minimum_rows} expected."
-        ),
+        message=(f"File contains {row_count} data rows; at least {minimum_rows} expected."),
         recommended_action=(
-            "Confirm the extract was not truncated or exported "
-            "empty, then resubmit the complete file."
+            "Confirm the extract was not truncated or exported empty, then resubmit the complete file."
         ),
     )
 
@@ -469,6 +430,7 @@ def validate_minimum_rows(
 # ---------------------------------------------------------
 # PDF CHECKS
 # ---------------------------------------------------------
+
 
 def validate_pdf_document(
     file: Path,
@@ -480,118 +442,108 @@ def validate_pdf_document(
     results = []
 
     try:
-
         reader = PdfReader(file)
 
-        text = "\n".join(
-            page.extract_text() or ""
-            for page in reader.pages
-        )
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
 
     except Exception as error:
-
-        return [make_result(
-            run_id=run_id,
-            source=source,
-            file=file,
-            stage=STAGE,
-            rule="PDF_READABLE",
-            status="FAIL",
-            severity="ERROR",
-            error_type=type(error).__name__,
-            technical_error=str(error),
-            expected="A valid readable PDF document.",
-            message="The file could not be opened as a PDF document.",
-            recommended_action=(
-                "Verify that the PDF is not corrupted or password "
-                "protected, then resubmit it."
-            ),
-        )]
+        return [
+            make_result(
+                run_id=run_id,
+                source=source,
+                file=file,
+                stage=STAGE,
+                rule="PDF_READABLE",
+                status="FAIL",
+                severity="ERROR",
+                error_type=type(error).__name__,
+                technical_error=str(error),
+                expected="A valid readable PDF document.",
+                message="The file could not be opened as a PDF document.",
+                recommended_action=("Verify that the PDF is not corrupted or password protected, then resubmit it."),
+            )
+        ]
 
     if not text.strip():
+        return [
+            make_result(
+                run_id=run_id,
+                source=source,
+                file=file,
+                stage=STAGE,
+                rule="PDF_READABLE",
+                status="FAIL",
+                severity="ERROR",
+                actual=f"{len(reader.pages)} page(s), no extractable text",
+                expected="A PDF with a text layer.",
+                message="The PDF contains no extractable text (possibly a scan).",
+                recommended_action=("Submit the system-generated PDF rather than a scanned copy."),
+            )
+        ]
 
-        return [make_result(
+    results.append(
+        make_result(
             run_id=run_id,
             source=source,
             file=file,
             stage=STAGE,
             rule="PDF_READABLE",
-            status="FAIL",
-            severity="ERROR",
-            actual=f"{len(reader.pages)} page(s), no extractable text",
-            expected="A PDF with a text layer.",
-            message="The PDF contains no extractable text (possibly a scan).",
-            recommended_action=(
-                "Submit the system-generated PDF rather than a "
-                "scanned copy."
-            ),
-        )]
-
-    results.append(make_result(
-        run_id=run_id,
-        source=source,
-        file=file,
-        stage=STAGE,
-        rule="PDF_READABLE",
-        status="PASS",
-        actual=f"{len(reader.pages)} page(s)",
-        message="PDF opened and text extracted successfully.",
-    ))
+            status="PASS",
+            actual=f"{len(reader.pages)} page(s)",
+            message="PDF opened and text extracted successfully.",
+        )
+    )
 
     filename_pattern = structure.get("filename_pattern")
 
     if filename_pattern:
-
         matches = re.fullmatch(filename_pattern, file.name) is not None
 
-        results.append(make_result(
-            run_id=run_id,
-            source=source,
-            file=file,
-            stage=STAGE,
-            rule="FILENAME_CONVENTION",
-            status="PASS" if matches else "FAIL",
-            severity=None if matches else "ERROR",
-            actual=file.name,
-            expected=filename_pattern,
-            message=(
-                "File name follows the naming convention."
-                if matches else
-                "File name does not follow the naming convention."
-            ),
-            recommended_action=(
-                None if matches else
-                "Rename the file to <SiteCode>_<ShiftID>_<YYYYMMDD>"
-                "_Cashup.pdf and resubmit."
-            ),
-        ))
+        results.append(
+            make_result(
+                run_id=run_id,
+                source=source,
+                file=file,
+                stage=STAGE,
+                rule="FILENAME_CONVENTION",
+                status="PASS" if matches else "FAIL",
+                severity=None if matches else "ERROR",
+                actual=file.name,
+                expected=filename_pattern,
+                message=(
+                    "File name follows the naming convention."
+                    if matches
+                    else "File name does not follow the naming convention."
+                ),
+                recommended_action=(
+                    None if matches else "Rename the file to <SiteCode>_<ShiftID>_<YYYYMMDD>_Cashup.pdf and resubmit."
+                ),
+            )
+        )
 
     for label in structure.get("required_labels") or []:
-
         found = f"{label}:" in text
 
-        results.append(make_result(
-            run_id=run_id,
-            source=source,
-            file=file,
-            stage=STAGE,
-            rule="REQUIRED_LABEL",
-            field=label,
-            status="PASS" if found else "FAIL",
-            severity=None if found else "ERROR",
-            actual=None if found else "LABEL_NOT_FOUND",
-            expected=f"{label}:",
-            message=(
-                f"Label '{label}' found."
-                if found else
-                f"Required label '{label}' is missing from the document."
-            ),
-            recommended_action=(
-                None if found else
-                "Regenerate the document from the standard template "
-                "and resubmit."
-            ),
-        ))
+        results.append(
+            make_result(
+                run_id=run_id,
+                source=source,
+                file=file,
+                stage=STAGE,
+                rule="REQUIRED_LABEL",
+                field=label,
+                status="PASS" if found else "FAIL",
+                severity=None if found else "ERROR",
+                actual=None if found else "LABEL_NOT_FOUND",
+                expected=f"{label}:",
+                message=(
+                    f"Label '{label}' found." if found else f"Required label '{label}' is missing from the document."
+                ),
+                recommended_action=(
+                    None if found else "Regenerate the document from the standard template and resubmit."
+                ),
+            )
+        )
 
     return results
 
@@ -600,14 +552,11 @@ def validate_pdf_document(
 # SOURCE VALIDATION
 # ---------------------------------------------------------
 
+
 def first_failed_rule(results: list[dict]) -> str | None:
 
     for result in results:
-
-        if (
-            result["status"] == "FAIL"
-            and result.get("severity") == "ERROR"
-        ):
+        if result["status"] == "FAIL" and result.get("severity") == "ERROR":
             return result["rule"]
 
     return None
@@ -653,7 +602,6 @@ def validate_source(
     file_format = source_config["format"].lower()
 
     if file_format == "pdf":
-
         results = validate_pdf_document(
             file=file,
             run_id=run_id,
@@ -674,10 +622,7 @@ def validate_source(
         run_id=run_id,
         source=source,
         structure=structure,
-        row_limit=(
-            None if full_row_count
-            else structure.get("minimum_rows", 1)
-        ),
+        row_limit=(None if full_row_count else structure.get("minimum_rows", 1)),
     )
 
     validation_results.append(readable_result)
@@ -690,7 +635,6 @@ def validate_source(
     # -----------------------------------------------------
 
     if file_format == "xlsx":
-
         sheet_result = validate_required_sheet(
             file=file,
             run_id=run_id,
@@ -708,33 +652,39 @@ def validate_source(
     # 3. COLUMNS
     # -----------------------------------------------------
 
-    validation_results.extend(validate_required_columns(
-        file=file,
-        run_id=run_id,
-        source=source,
-        structure=structure,
-        inspection=inspection,
-    ))
+    validation_results.extend(
+        validate_required_columns(
+            file=file,
+            run_id=run_id,
+            source=source,
+            structure=structure,
+            inspection=inspection,
+        )
+    )
 
-    validation_results.extend(validate_column_layout(
-        file=file,
-        run_id=run_id,
-        source=source,
-        structure=structure,
-        inspection=inspection,
-    ))
+    validation_results.extend(
+        validate_column_layout(
+            file=file,
+            run_id=run_id,
+            source=source,
+            structure=structure,
+            inspection=inspection,
+        )
+    )
 
     # -----------------------------------------------------
     # 4. MINIMUM ROWS
     # -----------------------------------------------------
 
-    validation_results.append(validate_minimum_rows(
-        file=file,
-        run_id=run_id,
-        source=source,
-        structure=structure,
-        inspection=inspection,
-    ))
+    validation_results.append(
+        validate_minimum_rows(
+            file=file,
+            run_id=run_id,
+            source=source,
+            structure=structure,
+            inspection=inspection,
+        )
+    )
 
     return summarise(
         file,
@@ -756,16 +706,12 @@ def expected_structure_checks(source_config: dict) -> set[tuple[str, str]]:
     file_format = source_config["format"].lower()
 
     if file_format == "pdf":
-
         checks = {("PDF_READABLE", "")}
 
         if structure.get("filename_pattern"):
             checks.add(("FILENAME_CONVENTION", ""))
 
-        checks |= {
-            ("REQUIRED_LABEL", label)
-            for label in structure.get("required_labels") or []
-        }
+        checks |= {("REQUIRED_LABEL", label) for label in structure.get("required_labels") or []}
 
         return checks
 
@@ -777,10 +723,7 @@ def expected_structure_checks(source_config: dict) -> set[tuple[str, str]]:
     if file_format == "xlsx":
         checks.add(("REQUIRED_SHEET", ""))
 
-    checks |= {
-        ("REQUIRED_COLUMN", column)
-        for column in structure.get("required_columns") or []
-    }
+    checks |= {("REQUIRED_COLUMN", column) for column in structure.get("required_columns") or []}
 
     return checks
 
@@ -788,6 +731,7 @@ def expected_structure_checks(source_config: dict) -> set[tuple[str, str]]:
 # ---------------------------------------------------------
 # COMMAND LINE
 # ---------------------------------------------------------
+
 
 def parse_arguments(description: str) -> argparse.Namespace:
 
@@ -816,9 +760,7 @@ def parse_arguments(description: str) -> argparse.Namespace:
 
 def main() -> int:
 
-    args = parse_arguments(
-        "Validate the structure of ingested source files."
-    )
+    args = parse_arguments("Validate the structure of ingested source files.")
 
     source_registry = load_source_registry()
 
@@ -840,9 +782,7 @@ def main() -> int:
     status_counts = Counter()
 
     for source, file in targets:
-
         try:
-
             validation = validate_source(
                 file=file,
                 run_id=run_id,
@@ -851,7 +791,6 @@ def main() -> int:
             )
 
         except Exception as error:
-
             # Record the crash against this file and carry on with
             # the rest, rather than stopping the whole batch.
             validation = {
@@ -869,10 +808,7 @@ def main() -> int:
 
         quarantine_path = None
 
-        if (
-            validation["status"] in STOPPED_STATUSES
-            and quarantine_enabled
-        ):
+        if validation["status"] in STOPPED_STATUSES and quarantine_enabled:
             quarantine_path = quarantine_file(file, run_id, results)
 
         write_file_status(
@@ -890,10 +826,7 @@ def main() -> int:
 
         status_counts[validation["status"]] += 1
 
-        warnings = sum(
-            1 for result in results
-            if result.get("severity") == "WARNING"
-        )
+        warnings = sum(1 for result in results if result.get("severity") == "WARNING")
 
         line = f"{file.name} -> {source} -> {validation['status']}"
 
@@ -906,12 +839,8 @@ def main() -> int:
         print(line)
 
         for result in results:
-
             if result["status"] == "FAIL":
-                print(
-                    f"   {result['severity']}: {result['rule']}"
-                    f" -> {result['message']}"
-                )
+                print(f"   {result['severity']}: {result['rule']} -> {result['message']}")
 
         if quarantine_path:
             print(f"   Quarantined: {quarantine_path.relative_to(PROJECT_ROOT)}")
@@ -934,5 +863,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-
     sys.exit(main())

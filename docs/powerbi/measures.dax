@@ -1,0 +1,72 @@
+// =========================================================
+// Retail Data Platform v2 - explicit DAX measures
+// Table names follow the mart views imported into Power BI.
+// =========================================================
+
+// ---------- Sales ----------
+Net Sales = SUM ( FactSalesLine[LineNetAmount] )
+Cost of Sales = SUM ( FactSalesLine[LineCostAmount] )
+Gross Margin = [Net Sales] - [Cost of Sales]
+Gross Margin % = DIVIDE ( [Gross Margin], [Net Sales] )
+Units Sold = SUM ( FactSalesLine[Quantity] )
+Transactions = DISTINCTCOUNT ( FactSales[SaleID] )
+Average Basket (incl. VAT) = DIVIDE ( SUM ( FactSales[TotalAmount] ), [Transactions] )
+Sales incl. VAT = SUM ( FactSales[TotalAmount] )
+Net Sales LY = CALCULATE ( [Net Sales], SAMEPERIODLASTYEAR ( DimDate[Date] ) )
+Net Sales YoY % = DIVIDE ( [Net Sales] - [Net Sales LY], [Net Sales LY] )
+Net Sales YTD = TOTALYTD ( [Net Sales], DimDate[Date] )
+Cash Sales = CALCULATE ( [Sales incl. VAT], DimPaymentMethod[PaymentMethodCode] = "CASH" )
+Card Sales = CALCULATE ( [Sales incl. VAT], DimPaymentMethod[PaymentMethodCode] = "CARD" )
+Account Sales = CALCULATE ( [Sales incl. VAT], DimPaymentMethod[PaymentMethodCode] = "CREDIT" )
+
+// ---------- Finance (general ledger) ----------
+// NetAmount = debit - credit; revenue is credit-normal, so negate for presentation.
+GL Debits = SUM ( FactGeneralLedger[DebitAmount] )
+GL Credits = SUM ( FactGeneralLedger[CreditAmount] )
+Revenue = - CALCULATE ( SUM ( FactGeneralLedger[NetAmount] ), DimAccount[StatementSection] = "Revenue" )
+Expenses = CALCULATE ( SUM ( FactGeneralLedger[NetAmount] ), DimAccount[StatementSection] = "Expenses" )
+Net Profit = [Revenue] - [Expenses]
+Net Profit Margin % = DIVIDE ( [Net Profit], [Revenue] )
+// Balance at the end of the selected period: all postings up to the last visible date.
+Closing Balance (debit +) =
+    CALCULATE (
+        SUM ( FactGeneralLedger[NetAmount] ),
+        FILTER ( ALL ( DimDate ), DimDate[Date] <= MAX ( DimDate[Date] ) )
+    )
+Ledger Out of Balance = [GL Debits] - [GL Credits]
+Operating Expenses = SUM ( FactOperatingExpense[Amount] )
+
+// ---------- Purchasing and suppliers ----------
+Purchase Value = SUM ( FactPurchaseOrder[POValue] )
+Purchase Orders = DISTINCTCOUNT ( FactPurchaseOrder[POID] )
+Orders Below Minimum = CALCULATE ( [Purchase Orders], FactPurchaseOrder[MeetsMinimumOrderValue] = FALSE () )
+Minimum Order Compliance % = 1 - DIVIDE ( [Orders Below Minimum], [Purchase Orders] )
+Average Lead Time (days) = AVERAGE ( FactGoodsReceipt[LeadTimeDays] )
+Invoiced Total = SUM ( FactSupplierInvoice[TotalAmount] )
+Invoice to Order Variance = SUM ( FactSupplierInvoice[InvoiceToOrderVariance] )
+Rebate Earned = SUM ( FactSupplierRebate[RebateAmount] )
+Rebate Expected = SUM ( FactSupplierRebate[ExpectedRebateAmount] )
+Rebate Variance = [Rebate Earned] - [Rebate Expected]
+Invoices Due by Date =
+    CALCULATE ( [Invoiced Total], USERELATIONSHIP ( FactSupplierInvoice[DueDateKey], DimDate[DateKey] ) )
+
+// ---------- Inventory ----------
+Closing Stock Units =
+    CALCULATE ( SUM ( FactInventorySnapshot[ClosingQuantity] ), LASTDATE ( DimDate[Date] ) )
+Closing Stock Value =
+    CALCULATE ( SUM ( FactInventorySnapshot[ClosingValue] ), LASTDATE ( DimDate[Date] ) )
+Units Received = CALCULATE ( SUM ( FactInventoryMovement[Quantity] ), FactInventoryMovement[Direction] = "IN" )
+Units Issued = - CALCULATE ( SUM ( FactInventoryMovement[Quantity] ), FactInventoryMovement[Direction] = "OUT" )
+Stock Turn (annualised) = DIVIDE ( [Cost of Sales], [Closing Stock Value] )
+
+// ---------- Assets ----------
+Depreciation = SUM ( FactAssetDepreciation[DepreciationAmount] )
+Net Book Value =
+    CALCULATE ( SUM ( FactAssetDepreciation[NetBookValue] ), LASTDATE ( DimDate[Date] ) )
+
+// ---------- Cash management ----------
+Declared Cash Sales = SUM ( FactBranchCashup[CashSales] )
+Cash Variance = SUM ( FactBranchCashup[CashVariance] )
+Cash Shortages = CALCULATE ( COUNTROWS ( FactBranchCashup ), FactBranchCashup[CashVarianceStatus] = "SHORTAGE" )
+Cash Overages = CALCULATE ( COUNTROWS ( FactBranchCashup ), FactBranchCashup[CashVarianceStatus] = "OVERAGE" )
+Cash-up vs POS Cash Difference = [Declared Cash Sales] - [Cash Sales]

@@ -7,14 +7,12 @@ quarantine.
 import csv
 import shutil
 import traceback
-
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import openpyxl
 import yaml
-
 
 # ---------------------------------------------------------
 # PROJECT PATHS
@@ -117,6 +115,7 @@ FILE_STATUS_FIELDS = [
 # CONFIGURATION
 # ---------------------------------------------------------
 
+
 def load_registry_config() -> dict:
 
     with open(
@@ -141,6 +140,7 @@ def load_settings() -> dict:
 # MANIFEST
 # ---------------------------------------------------------
 
+
 def read_manifest() -> list[dict]:
 
     if not MANIFEST_FILE.exists():
@@ -161,11 +161,7 @@ def latest_ingestion_run(manifest: list[dict]) -> str | None:
     found duplicates have nothing new to validate.
     """
 
-    run_ids = [
-        row["run_id"]
-        for row in manifest
-        if row["status"] == "INGESTED"
-    ]
+    run_ids = [row["run_id"] for row in manifest if row["status"] == "INGESTED"]
 
     return max(run_ids) if run_ids else None
 
@@ -179,9 +175,7 @@ def ingested_files_for_run(
     return [
         row
         for row in manifest
-        if row["run_id"] == run_id
-        and row["status"] == "INGESTED"
-        and (source is None or row["source"] == source)
+        if row["run_id"] == run_id and row["status"] == "INGESTED" and (source is None or row["source"] == source)
     ]
 
 
@@ -222,31 +216,40 @@ def latest_raw_file_for_source(
 # TABLE READING
 # ---------------------------------------------------------
 
+
 def is_blank(value) -> bool:
 
-    return value is None or (
-        isinstance(value, str)
-        and not value.strip()
-    )
+    return value is None or (isinstance(value, str) and not value.strip())
 
 
 def read_table(
     file: Path,
     structure: dict,
+    extraction: dict | None = None,
 ) -> tuple[list, list[tuple[int, tuple]]]:
     """
-    Read a tabular source (xlsx or csv).
+    Read a tabular source (xlsx or csv), or extract a PDF document
+    into a one-row table (see document_extraction.py).
 
     Returns (headers, rows) where rows is a list of
     (source_row_number, values). Row numbers match what a user sees
     in Excel, so error reports point to the exact row. Completely
-    blank rows are skipped.
+    blank rows are skipped. A PDF document is row 1.
     """
 
     suffix = file.suffix.lower()
 
-    if suffix == ".xlsx":
+    if suffix == ".pdf":
+        if not extraction:
+            raise ValueError(f"No extraction rules are configured for {file.name}.")
 
+        from document_extraction import extract_record
+
+        headers, values = extract_record(file, extraction)
+
+        return headers, [(1, values)]
+
+    if suffix == ".xlsx":
         workbook = openpyxl.load_workbook(
             file,
             read_only=True,
@@ -254,15 +257,11 @@ def read_table(
         )
 
         try:
-
             worksheet = workbook[structure["sheet"]]
 
             rows = worksheet.iter_rows(values_only=True)
 
-            headers = [
-                header.strip() if isinstance(header, str) else header
-                for header in next(rows, ())
-            ]
+            headers = [header.strip() if isinstance(header, str) else header for header in next(rows, ())]
 
             data = [
                 (row_number, row)
@@ -276,14 +275,12 @@ def read_table(
         return headers, data
 
     if suffix == ".csv":
-
         with open(
             file,
             "r",
             newline="",
             encoding="utf-8-sig",
         ) as csv_file:
-
             reader = csv.reader(csv_file)
 
             headers = [header.strip() for header in next(reader, [])]
@@ -305,6 +302,7 @@ def read_table(
 # ---------------------------------------------------------
 # RESULT RECORDS
 # ---------------------------------------------------------
+
 
 def make_result(
     *,
@@ -333,17 +331,9 @@ def make_result(
 
 def count_by_severity(results: list[dict]) -> tuple[int, int]:
 
-    errors = sum(
-        1 for result in results
-        if result["status"] == "FAIL"
-        and result.get("severity") == "ERROR"
-    )
+    errors = sum(1 for result in results if result["status"] == "FAIL" and result.get("severity") == "ERROR")
 
-    warnings = sum(
-        1 for result in results
-        if result["status"] == "FAIL"
-        and result.get("severity") == "WARNING"
-    )
+    warnings = sum(1 for result in results if result["status"] == "FAIL" and result.get("severity") == "WARNING")
 
     return errors, warnings
 
@@ -351,6 +341,7 @@ def count_by_severity(results: list[dict]) -> tuple[int, int]:
 # ---------------------------------------------------------
 # LOGGING
 # ---------------------------------------------------------
+
 
 def ensure_csv_schema(
     path: Path,
@@ -381,16 +372,13 @@ def ensure_csv_schema(
         old_fields, data = legacy_fieldnames, rows
 
     else:
-        raise ValueError(
-            f"Cannot migrate {path}: unrecognised column layout."
-        )
+        raise ValueError(f"Cannot migrate {path}: unrecognised column layout.")
 
     # Write the migrated log in full, then swap it in, so an
     # interruption can never leave a truncated log.
     temporary = path.with_name(path.name + ".partial")
 
     with open(temporary, "w", newline="", encoding="utf-8") as log_file:
-
         writer = csv.DictWriter(
             log_file,
             fieldnames=fieldnames,
@@ -400,7 +388,8 @@ def ensure_csv_schema(
         writer.writeheader()
 
         for row in data:
-            writer.writerow(dict(zip(old_fields, row)))
+            # Legacy rows may be shorter than the header; missing values stay blank.
+            writer.writerow(dict(zip(old_fields, row, strict=False)))
 
     temporary.replace(path)
 
@@ -427,7 +416,6 @@ def append_csv_rows(
         newline="",
         encoding="utf-8",
     ) as log_file:
-
         writer = csv.DictWriter(
             log_file,
             fieldnames=fieldnames,
@@ -438,9 +426,7 @@ def append_csv_rows(
             writer.writeheader()
 
         for row in rows:
-            writer.writerow(
-                {field: row.get(field) for field in fieldnames}
-            )
+            writer.writerow({field: row.get(field) for field in fieldnames})
 
 
 def write_validation_results(results: list[dict]) -> None:
@@ -477,24 +463,23 @@ def write_file_status(
     append_csv_rows(
         FILE_STATUS_LOG_FILE,
         FILE_STATUS_FIELDS,
-        [{
-            "run_id": run_id,
-            "validation_id": validation_id,
-            "source": source,
-            "file": file.name,
-            "file_path": project_relative(file),
-            "stage": stage,
-            "status": status,
-            "rows_checked": rows_checked,
-            "errors": logged_errors if errors is None else errors,
-            "warnings": logged_warnings if warnings is None else warnings,
-            "quarantine_path": (
-                quarantine_path.relative_to(PROJECT_ROOT).as_posix()
-                if quarantine_path else None
-            ),
-            "data_steward": data_steward,
-            "validated_at": datetime.now().isoformat(timespec="seconds"),
-        }],
+        [
+            {
+                "run_id": run_id,
+                "validation_id": validation_id,
+                "source": source,
+                "file": file.name,
+                "file_path": project_relative(file),
+                "stage": stage,
+                "status": status,
+                "rows_checked": rows_checked,
+                "errors": logged_errors if errors is None else errors,
+                "warnings": logged_warnings if warnings is None else warnings,
+                "quarantine_path": (quarantine_path.relative_to(PROJECT_ROOT).as_posix() if quarantine_path else None),
+                "data_steward": data_steward,
+                "validated_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        ],
     )
 
 
@@ -509,6 +494,7 @@ def data_steward(source_registry: dict, source: str) -> str | None:
 # ---------------------------------------------------------
 # TRACEABILITY
 # ---------------------------------------------------------
+
 
 def new_validation_id(stage: str) -> str:
     """
@@ -531,11 +517,7 @@ def project_relative(path: Path) -> str:
 
     path = Path(path).resolve()
 
-    return (
-        path.relative_to(PROJECT_ROOT).as_posix()
-        if path.is_relative_to(PROJECT_ROOT)
-        else str(path)
-    )
+    return path.relative_to(PROJECT_ROOT).as_posix() if path.is_relative_to(PROJECT_ROOT) else str(path)
 
 
 def describe_exception(error: Exception) -> str:
@@ -547,18 +529,14 @@ def describe_exception(error: Exception) -> str:
     frames = traceback.extract_tb(error.__traceback__)
 
     project_frames = [
-        frame for frame in frames
-        if Path(frame.filename).resolve().is_relative_to(PROJECT_ROOT)
-        and ".venv" not in Path(frame.filename).parts
+        frame
+        for frame in frames
+        if Path(frame.filename).resolve().is_relative_to(PROJECT_ROOT) and ".venv" not in Path(frame.filename).parts
     ]
 
     frame = (project_frames or frames or [None])[-1]
 
-    location = (
-        f" (at {project_relative(Path(frame.filename))}:{frame.lineno} "
-        f"in {frame.name})"
-        if frame else ""
-    )
+    location = f" (at {project_relative(Path(frame.filename))}:{frame.lineno} in {frame.name})" if frame else ""
 
     return f"{error}{location}"
 
@@ -586,10 +564,7 @@ def exception_result(
         error_type=type(error).__name__,
         technical_error=describe_exception(error),
         expected="Validation completes without an unexpected error.",
-        message=(
-            f"Validation stopped unexpectedly ({type(error).__name__}); "
-            f"the file's checks are incomplete."
-        ),
+        message=(f"Validation stopped unexpectedly ({type(error).__name__}); the file's checks are incomplete."),
         recommended_action=(
             "Check technical_error for the cause and location. If the "
             "file is at fault, fix and resubmit it; otherwise report "
@@ -616,10 +591,7 @@ def latest_file_status(
     """Most recent validation outcome for a file in a given run."""
 
     matches = [
-        row for row in status_rows
-        if row["run_id"] == run_id
-        and row["file"] == file_name
-        and row["stage"] == stage
+        row for row in status_rows if row["run_id"] == run_id and row["file"] == file_name and row["stage"] == stage
     ]
 
     return matches[-1] if matches else None
@@ -634,10 +606,7 @@ def failure_summary(
     'REQUIRED_VALUE on supplier_id x3 (first at row 7)'.
     """
 
-    failures = [
-        row for row in result_rows
-        if row["status"] == "FAIL" and row["severity"] == "ERROR"
-    ]
+    failures = [row for row in result_rows if row["status"] == "FAIL" and row["severity"] == "ERROR"]
 
     if not failures:
         return ""
@@ -647,11 +616,7 @@ def failure_summary(
     parts = []
 
     for (rule, field), count in counts.most_common(limit):
-
-        first = next(
-            row for row in failures
-            if row["rule"] == rule and row["field"] == field
-        )
+        first = next(row for row in failures if row["rule"] == rule and row["field"] == field)
 
         part = f"{rule}" + (f" on {field}" if field else "")
         part += f" x{count}" if count > 1 else ""
@@ -673,6 +638,7 @@ def failure_summary(
 # QUARANTINE
 # ---------------------------------------------------------
 
+
 def quarantine_file(
     file: Path,
     run_id: str,
@@ -686,11 +652,7 @@ def quarantine_file(
 
     run_raw_dir = RAW_DIR / run_id
 
-    relative_path = (
-        file.relative_to(run_raw_dir)
-        if file.is_relative_to(run_raw_dir)
-        else Path(file.name)
-    )
+    relative_path = file.relative_to(run_raw_dir) if file.is_relative_to(run_raw_dir) else Path(file.name)
 
     destination = QUARANTINE_DIR / run_id / relative_path
 
@@ -703,11 +665,7 @@ def quarantine_file(
     shutil.copy2(file, temporary)
     temporary.replace(destination)
 
-    failures = [
-        result
-        for result in results
-        if result["status"] == "FAIL"
-    ]
+    failures = [result for result in results if result["status"] == "FAIL"]
 
     report_path = destination.with_name(destination.name + ".errors.csv")
 
@@ -722,6 +680,7 @@ def quarantine_file(
 # ---------------------------------------------------------
 # TARGET SELECTION
 # ---------------------------------------------------------
+
 
 def select_targets(
     run_id: str | None,
@@ -738,16 +697,13 @@ def select_targets(
     """
 
     if file:
-
         if not source:
             raise SystemExit("--file requires --source.")
 
         if source not in source_registry:
             raise SystemExit(f"Unknown source '{source}'.")
 
-        adhoc_run_id = run_id or (
-            "ADHOC-" + datetime.now().strftime("%Y%m%d_%H%M%S")
-        )
+        adhoc_run_id = run_id or ("ADHOC-" + datetime.now().strftime("%Y%m%d_%H%M%S"))
 
         return adhoc_run_id, [(source, Path(file).resolve())], True
 
@@ -756,17 +712,11 @@ def select_targets(
     run_id = run_id or latest_ingestion_run(manifest)
 
     if run_id is None:
-        raise SystemExit(
-            "No ingested files found. "
-            "Run src/ingestion/discover_files.py first."
-        )
+        raise SystemExit("No ingested files found. Run src/ingestion/discover_files.py first.")
 
     rows = ingested_files_for_run(manifest, run_id, source)
 
     if not rows:
-        raise SystemExit(
-            f"No ingested files found for run {run_id}"
-            + (f" and source {source}." if source else ".")
-        )
+        raise SystemExit(f"No ingested files found for run {run_id}" + (f" and source {source}." if source else "."))
 
     return run_id, [(row["source"], raw_file_path(row)) for row in rows], False

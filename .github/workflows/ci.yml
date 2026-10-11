@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint, security and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install ODBC runtime (pyodbc import)
+        run: sudo apt-get update && sudo apt-get install -y unixodbc
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Formatting (ruff format)
+        run: ruff format --check .
+
+      - name: Static security analysis (bandit)
+        run: bandit -q -c pyproject.toml -r src scripts
+
+      - name: Dependency vulnerabilities (pip-audit)
+        run: pip-audit -r requirements.txt
+
+      - name: Pipeline configuration and dependency validation
+        run: python scripts/sync_metadata.py --check
+
+      - name: Released migrations are never edited
+        if: github.event_name == 'pull_request'
+        run: |
+          changed=$(git diff --name-status "origin/${{ github.base_ref }}"...HEAD -- sql/ | grep -E '^(M|D|R)' || true)
+          if [ -n "$changed" ]; then
+            echo "Existing migrations were modified, renamed or deleted:"; echo "$changed"
+            echo "Add a new numbered migration instead."; exit 1
+          fi
+
+      - name: Unit, configuration, regression and SQL-standards tests
+        run: python -m pytest tests -q
+
+  integration:
+    name: End-to-end pipeline on SQL Server
+    # Opt-in: set repository variable RUN_SQL_INTEGRATION=true and secret
+    # CI_SQL_SA_PASSWORD (a strong throwaway password for the CI container).
+    if: vars.RUN_SQL_INTEGRATION == 'true'
+    needs: quality
+    runs-on: ubuntu-latest
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2019-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: ${{ secrets.CI_SQL_SA_PASSWORD }}
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' || exit 1"
+          --health-interval 10s --health-timeout 5s --health-retries 20
+    env:
+      SQL_SERVER: localhost,1433
+      SQL_DATABASE: RetailDataPlatform
+      SQL_DRIVER: ODBC Driver 18 for SQL Server
+      SQL_USERNAME: sa
+      SQL_PASSWORD: ${{ secrets.CI_SQL_SA_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install Microsoft ODBC Driver 18
+        run: |
+          curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/$(lsb_release -rs)/prod $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update && sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Generate, ingest and validate synthetic data
+        run: |
+          python scripts/generate_all.py
+          python src/ingestion/discover_files.py
+          python src/validation/validate_structure.py || true
+          python src/validation/validate_data.py || true
+          python src/validation/check_coverage.py
+          python src/validation/load_eligibility.py || test $? -eq 1
+
+      - name: Integration tests (fresh database, full pipeline twice)
+        run: python -m pytest tests/integration -m integration -v

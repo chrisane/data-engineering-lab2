@@ -31,7 +31,6 @@ import math
 import operator
 import re
 import sys
-
 from collections import Counter, defaultdict
 from datetime import date, datetime
 from pathlib import Path
@@ -59,9 +58,10 @@ from common import (
 )
 from validate_structure import (
     parse_arguments,
+)
+from validate_structure import (
     validate_source as validate_structure,
 )
-
 
 BUSINESS_STAGE = "BUSINESS_RULE_VALIDATION"
 
@@ -86,6 +86,7 @@ FORMULA_OPERATORS = {
 # VALUE HELPERS
 # ---------------------------------------------------------
 
+
 def to_number(value) -> float | int | None:
     """
     Return the numeric value, or None if the value is not a number.
@@ -99,7 +100,6 @@ def to_number(value) -> float | int | None:
         return None if math.isnan(value) else value
 
     if isinstance(value, str):
-
         try:
             return float(value.strip().replace(",", ""))
         except ValueError:
@@ -118,7 +118,6 @@ def to_date(value) -> tuple[date | None, bool]:
         return value, False
 
     if isinstance(value, str):
-
         try:
             return datetime.fromisoformat(value.strip()), True
         except ValueError:
@@ -142,10 +141,7 @@ def key_of(value) -> str:
 def value_allowed(value, allowed: list) -> bool:
 
     if isinstance(value, bool):
-        return any(
-            isinstance(option, bool) and option == value
-            for option in allowed
-        )
+        return any(isinstance(option, bool) and option == value for option in allowed)
 
     number = to_number(value) if not isinstance(value, str) else None
 
@@ -175,6 +171,7 @@ def display(value):
 # FORMULAS
 # ---------------------------------------------------------
 
+
 def compile_formula(formula: str) -> tuple[ast.AST, list[str]]:
     """
     Parse a calculation formula such as 'net_amount + vat_amount'.
@@ -199,17 +196,11 @@ def compile_formula(formula: str) -> tuple[ast.AST, list[str]]:
     names = []
 
     for node in ast.walk(tree):
-
         if not isinstance(node, allowed_nodes):
-            raise ValueError(
-                f"Unsupported element '{type(node).__name__}' "
-                f"in formula '{formula}'."
-            )
+            raise ValueError(f"Unsupported element '{type(node).__name__}' in formula '{formula}'.")
 
         if isinstance(node, ast.Constant) and to_number(node.value) is None:
-            raise ValueError(
-                f"Only numeric constants are allowed in formula '{formula}'."
-            )
+            raise ValueError(f"Only numeric constants are allowed in formula '{formula}'.")
 
         if isinstance(node, ast.Name):
             names.append(node.id)
@@ -239,8 +230,8 @@ def evaluate_formula(node: ast.AST, values: dict) -> float:
 # TABLES AND REFERENCE DATA
 # ---------------------------------------------------------
 
-class Table:
 
+class Table:
     def __init__(
         self,
         headers: list,
@@ -297,13 +288,11 @@ class ReferenceData:
         """
 
         if "config" in spec:
-
             name = spec["config"]
             description = f"config/{name}"
             cache_key = ("config", name)
 
             if cache_key not in self.tables:
-
                 path = CONFIG_DIR / name
 
                 if not path.exists():
@@ -321,7 +310,6 @@ class ReferenceData:
         cache_key = ("source", source)
 
         if cache_key not in self.tables:
-
             # Ad-hoc runs are not in the manifest; use the latest RAW copy.
             up_to = self.run_id if self.run_id.startswith("ING-") else None
 
@@ -331,7 +319,13 @@ class ReferenceData:
                 self.tables[cache_key] = None
             else:
                 structure = self.source_registry[source].get("structure") or {}
-                self.tables[cache_key] = Table(*read_table(path, structure))
+                self.tables[cache_key] = Table(
+                    *read_table(
+                        path,
+                        structure,
+                        self.source_registry[source].get("extraction"),
+                    )
+                )
 
         return self.tables[cache_key], source
 
@@ -352,22 +346,16 @@ class ReferenceData:
 
         table, _ = self.table(spec)
 
-        if (
-            table is None
-            or not table.has(spec["source_key"])
-            or not table.has(spec["field"])
-        ):
+        if table is None or not table.has(spec["source_key"]) or not table.has(spec["field"]):
             return None
 
-        return {
-            key_of(table.value(row, spec["source_key"])): table.value(row, spec["field"])
-            for _, row in table.rows
-        }
+        return {key_of(table.value(row, spec["source_key"])): table.value(row, spec["field"]) for _, row in table.rows}
 
 
 # ---------------------------------------------------------
 # FAILURE COLLECTION
 # ---------------------------------------------------------
+
 
 class ResultCollector:
     """
@@ -404,10 +392,7 @@ class ResultCollector:
         if not self.record_key_fields:
             return None
 
-        return "|".join(
-            f"{field}={display(table.value(row, field))}"
-            for field in self.record_key_fields
-        )
+        return "|".join(f"{field}={display(table.value(row, field))}" for field in self.record_key_fields)
 
     def check(
         self,
@@ -442,76 +427,72 @@ class ResultCollector:
         if self.failure_counts[key] > self.max_failures:
             return
 
-        self.results.append(make_result(
-            run_id=self.run_id,
-            source=self.source,
-            file=self.file,
-            sheet=self.sheet,
-            row_number=row_number,
-            record_key=(
-                self.record_key(table, row)
-                if table is not None and row is not None
-                else None
-            ),
-            stage=stage,
-            rule=rule,
-            field=field,
-            status="FAIL",
-            severity=severity,
-            actual=display(actual),
-            expected=expected,
-            message=message,
-            recommended_action=recommended_action,
-        ))
+        self.results.append(
+            make_result(
+                run_id=self.run_id,
+                source=self.source,
+                file=self.file,
+                sheet=self.sheet,
+                row_number=row_number,
+                record_key=(self.record_key(table, row) if table is not None and row is not None else None),
+                stage=stage,
+                rule=rule,
+                field=field,
+                status="FAIL",
+                severity=severity,
+                actual=display(actual),
+                expected=expected,
+                message=message,
+                recommended_action=recommended_action,
+            )
+        )
 
     def finalise(self, rows_checked: int) -> list[dict]:
 
         results = list(self.results)
 
         for key, count in self.failure_counts.items():
-
             if count > self.max_failures:
-
                 stage, rule, field = key
 
-                results.append(make_result(
-                    run_id=self.run_id,
-                    source=self.source,
-                    file=self.file,
-                    sheet=self.sheet,
-                    stage=stage,
-                    rule=rule,
-                    field=field,
-                    status="FAIL",
-                    severity=self.failure_severity[key],
-                    actual=f"{count} failures",
-                    message=(
-                        f"{count} failures in total; only the first "
-                        f"{self.max_failures} are listed individually."
-                    ),
-                    recommended_action=(
-                        "The issue affects many rows - check for a "
-                        "systematic cause in the source extract."
-                    ),
-                ))
+                results.append(
+                    make_result(
+                        run_id=self.run_id,
+                        source=self.source,
+                        file=self.file,
+                        sheet=self.sheet,
+                        stage=stage,
+                        rule=rule,
+                        field=field,
+                        status="FAIL",
+                        severity=self.failure_severity[key],
+                        actual=f"{count} failures",
+                        message=(
+                            f"{count} failures in total; only the first {self.max_failures} are listed individually."
+                        ),
+                        recommended_action=(
+                            "The issue affects many rows - check for a systematic cause in the source extract."
+                        ),
+                    )
+                )
 
         for (stage, rule, field), description in self.checks.items():
-
             if self.failure_counts[(stage, rule, field)] == 0:
-
-                results.append(make_result(
-                    run_id=self.run_id,
-                    source=self.source,
-                    file=self.file,
-                    sheet=self.sheet,
-                    stage=stage,
-                    rule=rule,
-                    field=field,
-                    status="PASS",
-                    actual=f"{rows_checked} rows checked",
-                    expected=description,
-                    message=f"{rule} passed for all rows.",
-                ))
+                results.append(
+                    make_result(
+                        run_id=self.run_id,
+                        source=self.source,
+                        file=self.file,
+                        sheet=self.sheet,
+                        stage=stage,
+                        rule=rule,
+                        field=field,
+                        status="PASS",
+                        actual=f"{rows_checked} rows checked",
+                        expected=description,
+                        message=f"{rule} passed for all rows.",
+                    )
+                )
 
         return results
 
@@ -525,11 +506,11 @@ def missing_column(
     """A rule refers to a column the file does not have."""
 
     collector.fail(
-        stage, rule, field, "ERROR",
-        message=(
-            f"Rule {rule} refers to column '{field}', which is not "
-            f"in the file."
-        ),
+        stage,
+        rule,
+        field,
+        "ERROR",
+        message=(f"Rule {rule} refers to column '{field}', which is not in the file."),
         recommended_action=(
             f"Add '{field}' to the file, or correct the rule in "
             f"config/source_registry.yaml (and add the column to "
@@ -544,10 +525,10 @@ def missing_column(
 # DATA RULES
 # ---------------------------------------------------------
 
+
 def check_required_values(table, rules, collector) -> None:
 
     for field in rules.get("required_values") or []:
-
         if not table.has(field):
             missing_column(collector, DATA_STAGE, "REQUIRED_VALUE", field)
             continue
@@ -555,25 +536,27 @@ def check_required_values(table, rules, collector) -> None:
         collector.check(DATA_STAGE, "REQUIRED_VALUE", field, "A non-blank value.")
 
         for row_number, row in table.rows:
-
             if is_blank(table.value(row, field)):
-
                 collector.fail(
-                    DATA_STAGE, "REQUIRED_VALUE", field, "ERROR",
+                    DATA_STAGE,
+                    "REQUIRED_VALUE",
+                    field,
+                    "ERROR",
                     message=f"Required field '{field}' is blank.",
                     recommended_action=(
-                        f"Enter a valid value for '{field}' in row "
-                        f"{row_number} and resubmit the file."
+                        f"Enter a valid value for '{field}' in row {row_number} and resubmit the file."
                     ),
-                    table=table, row_number=row_number, row=row,
-                    actual=None, expected="A non-blank value.",
+                    table=table,
+                    row_number=row_number,
+                    row=row,
+                    actual=None,
+                    expected="A non-blank value.",
                 )
 
 
 def check_unique(table, rules, collector) -> None:
 
     for key in rules.get("unique") or []:
-
         fields = [key] if isinstance(key, str) else list(key)
         label = "+".join(fields)
 
@@ -589,7 +572,6 @@ def check_unique(table, rules, collector) -> None:
         first_seen = {}
 
         for row_number, row in table.rows:
-
             values = [table.value(row, field) for field in fields]
 
             if any(is_blank(value) for value in values):
@@ -601,31 +583,30 @@ def check_unique(table, rules, collector) -> None:
                 first_seen[normalised] = row_number
                 continue
 
-            shown = ", ".join(
-                f"{field}={display(value)}"
-                for field, value in zip(fields, values)
-            )
+            shown = ", ".join(f"{field}={display(value)}" for field, value in zip(fields, values, strict=True))
 
             collector.fail(
-                DATA_STAGE, "UNIQUE", label, "ERROR",
-                message=(
-                    f"Duplicate {label} ({shown}); first seen in row "
-                    f"{first_seen[normalised]}."
-                ),
+                DATA_STAGE,
+                "UNIQUE",
+                label,
+                "ERROR",
+                message=(f"Duplicate {label} ({shown}); first seen in row {first_seen[normalised]}."),
                 recommended_action=(
                     f"Remove the duplicate record or correct its "
                     f"{label}. Compare rows {first_seen[normalised]} "
                     f"and {row_number}."
                 ),
-                table=table, row_number=row_number, row=row,
-                actual=shown, expected=f"A unique {label}.",
+                table=table,
+                row_number=row_number,
+                row=row,
+                actual=shown,
+                expected=f"A unique {label}.",
             )
 
 
 def check_numeric(table, rules, collector) -> None:
 
     for field, limits in (rules.get("numeric") or {}).items():
-
         if not table.has(field):
             missing_column(collector, DATA_STAGE, "DATA_TYPE", field)
             continue
@@ -642,18 +623,18 @@ def check_numeric(table, rules, collector) -> None:
         range_text = None
 
         if minimum is not None or maximum is not None:
-
             range_text = " and ".join(
-                part for part in (
+                part
+                for part in (
                     f">= {minimum}" if minimum is not None else None,
                     f"<= {maximum}" if maximum is not None else None,
-                ) if part
+                )
+                if part
             )
 
             collector.check(DATA_STAGE, "NUMERIC_RANGE", field, range_text)
 
         for row_number, row in table.rows:
-
             value = table.value(row, field)
 
             if is_blank(value):
@@ -662,43 +643,40 @@ def check_numeric(table, rules, collector) -> None:
             number = to_number(value)
 
             if number is None or (integer and not float(number).is_integer()):
-
                 collector.fail(
-                    DATA_STAGE, "DATA_TYPE", field, "ERROR",
-                    message=(
-                        f"'{field}' must be "
-                        f"{'a whole number' if integer else 'numeric'}."
-                    ),
-                    recommended_action=(
-                        f"Correct '{field}' in row {row_number}; remove "
-                        f"text, symbols or decimals."
-                    ),
-                    table=table, row_number=row_number, row=row,
-                    actual=value, expected=expected_type,
+                    DATA_STAGE,
+                    "DATA_TYPE",
+                    field,
+                    "ERROR",
+                    message=(f"'{field}' must be {'a whole number' if integer else 'numeric'}."),
+                    recommended_action=(f"Correct '{field}' in row {row_number}; remove text, symbols or decimals."),
+                    table=table,
+                    row_number=row_number,
+                    row=row,
+                    actual=value,
+                    expected=expected_type,
                 )
                 continue
 
-            if (
-                (minimum is not None and number < minimum)
-                or (maximum is not None and number > maximum)
-            ):
-
+            if (minimum is not None and number < minimum) or (maximum is not None and number > maximum):
                 collector.fail(
-                    DATA_STAGE, "NUMERIC_RANGE", field, "ERROR",
+                    DATA_STAGE,
+                    "NUMERIC_RANGE",
+                    field,
+                    "ERROR",
                     message=f"'{field}' is outside the permitted range ({range_text}).",
-                    recommended_action=(
-                        f"Correct '{field}' in row {row_number} to a "
-                        f"value {range_text}."
-                    ),
-                    table=table, row_number=row_number, row=row,
-                    actual=number, expected=range_text,
+                    recommended_action=(f"Correct '{field}' in row {row_number} to a value {range_text}."),
+                    table=table,
+                    row_number=row_number,
+                    row=row,
+                    actual=number,
+                    expected=range_text,
                 )
 
 
 def check_dates(table, rules, collector, file_format) -> None:
 
     for field in rules.get("dates") or []:
-
         if not table.has(field):
             missing_column(collector, DATA_STAGE, "VALID_DATE", field)
             continue
@@ -706,7 +684,6 @@ def check_dates(table, rules, collector, file_format) -> None:
         collector.check(DATA_STAGE, "VALID_DATE", field, "A valid date.")
 
         for row_number, row in table.rows:
-
             value = table.value(row, field)
 
             if is_blank(value):
@@ -715,40 +692,43 @@ def check_dates(table, rules, collector, file_format) -> None:
             parsed, stored_as_text = to_date(value)
 
             if parsed is None:
-
                 collector.fail(
-                    DATA_STAGE, "VALID_DATE", field, "ERROR",
+                    DATA_STAGE,
+                    "VALID_DATE",
+                    field,
+                    "ERROR",
                     message=f"'{field}' is not a valid date.",
-                    recommended_action=(
-                        f"Enter a valid date (YYYY-MM-DD) for '{field}' "
-                        f"in row {row_number}."
-                    ),
-                    table=table, row_number=row_number, row=row,
-                    actual=value, expected="A valid date (YYYY-MM-DD).",
+                    recommended_action=(f"Enter a valid date (YYYY-MM-DD) for '{field}' in row {row_number}."),
+                    table=table,
+                    row_number=row_number,
+                    row=row,
+                    actual=value,
+                    expected="A valid date (YYYY-MM-DD).",
                 )
 
             elif stored_as_text and file_format == "xlsx":
-
                 collector.fail(
-                    DATA_STAGE, "DATE_STORED_AS_TEXT", field, "WARNING",
-                    message=(
-                        f"'{field}' holds a valid date, but it is stored "
-                        f"as text rather than an Excel date."
-                    ),
+                    DATA_STAGE,
+                    "DATE_STORED_AS_TEXT",
+                    field,
+                    "WARNING",
+                    message=(f"'{field}' holds a valid date, but it is stored as text rather than an Excel date."),
                     recommended_action=(
                         "No action needed for loading; the value will be "
                         "converted. Ask the source system owner to export "
                         "dates as date cells."
                     ),
-                    table=table, row_number=row_number, row=row,
-                    actual=value, expected="An Excel date cell.",
+                    table=table,
+                    row_number=row_number,
+                    row=row,
+                    actual=value,
+                    expected="An Excel date cell.",
                 )
 
 
 def check_allowed_values(table, rules, collector) -> None:
 
     for field, allowed in (rules.get("allowed_values") or {}).items():
-
         if not table.has(field):
             missing_column(collector, DATA_STAGE, "ALLOWED_VALUE", field)
             continue
@@ -758,29 +738,33 @@ def check_allowed_values(table, rules, collector) -> None:
         collector.check(DATA_STAGE, "ALLOWED_VALUE", field, expected)
 
         for row_number, row in table.rows:
-
             value = table.value(row, field)
 
             if is_blank(value) or value_allowed(value, allowed):
                 continue
 
             collector.fail(
-                DATA_STAGE, "ALLOWED_VALUE", field, "ERROR",
+                DATA_STAGE,
+                "ALLOWED_VALUE",
+                field,
+                "ERROR",
                 message=f"'{display(value)}' is not a permitted value for '{field}'.",
                 recommended_action=(
                     f"Change '{field}' in row {row_number} to one of "
                     f"{allowed}, or add the value to the source registry "
                     f"if it is a legitimate new code."
                 ),
-                table=table, row_number=row_number, row=row,
-                actual=value, expected=expected,
+                table=table,
+                row_number=row_number,
+                row=row,
+                actual=value,
+                expected=expected,
             )
 
 
 def check_patterns(table, rules, collector) -> None:
 
     for field, pattern in (rules.get("patterns") or {}).items():
-
         if not table.has(field):
             missing_column(collector, DATA_STAGE, "PATTERN", field)
             continue
@@ -790,28 +774,29 @@ def check_patterns(table, rules, collector) -> None:
         collector.check(DATA_STAGE, "PATTERN", field, pattern)
 
         for row_number, row in table.rows:
-
             value = table.value(row, field)
 
             if is_blank(value) or compiled.fullmatch(key_of(value)):
                 continue
 
             collector.fail(
-                DATA_STAGE, "PATTERN", field, "ERROR",
+                DATA_STAGE,
+                "PATTERN",
+                field,
+                "ERROR",
                 message=f"'{display(value)}' does not match the format for '{field}'.",
-                recommended_action=(
-                    f"Correct '{field}' in row {row_number} to match "
-                    f"the pattern {pattern}."
-                ),
-                table=table, row_number=row_number, row=row,
-                actual=value, expected=pattern,
+                recommended_action=(f"Correct '{field}' in row {row_number} to match the pattern {pattern}."),
+                table=table,
+                row_number=row_number,
+                row=row,
+                actual=value,
+                expected=pattern,
             )
 
 
 def check_references(table, rules, collector, reference_data) -> None:
 
     for field, spec in (rules.get("references") or {}).items():
-
         if not table.has(field):
             missing_column(collector, DATA_STAGE, "REFERENTIAL_INTEGRITY", field)
             continue
@@ -824,43 +809,44 @@ def check_references(table, rules, collector, reference_data) -> None:
         valid_keys = reference_data.key_set(spec)
 
         if valid_keys is None:
-
             collector.fail(
-                DATA_STAGE, "REFERENTIAL_INTEGRITY", field, "WARNING",
-                message=(
-                    f"Reference data {target_text} is not available, "
-                    f"so '{field}' could not be checked."
-                ),
-                recommended_action=(
-                    f"Ingest {target} (or add the config file) and "
-                    f"re-run validation."
-                ),
+                DATA_STAGE,
+                "REFERENTIAL_INTEGRITY",
+                field,
+                "WARNING",
+                message=(f"Reference data {target_text} is not available, so '{field}' could not be checked."),
+                recommended_action=(f"Ingest {target} (or add the config file) and re-run validation."),
                 expected=f"A value that exists in {target_text}.",
                 actual="REFERENCE_DATA_UNAVAILABLE",
             )
             continue
 
         collector.check(
-            DATA_STAGE, "REFERENTIAL_INTEGRITY", field,
+            DATA_STAGE,
+            "REFERENTIAL_INTEGRITY",
+            field,
             f"A value that exists in {target_text}.",
         )
 
         for row_number, row in table.rows:
-
             value = table.value(row, field)
 
             if is_blank(value) or key_of(value) in valid_keys:
                 continue
 
             collector.fail(
-                DATA_STAGE, "REFERENTIAL_INTEGRITY", field, severity,
+                DATA_STAGE,
+                "REFERENTIAL_INTEGRITY",
+                field,
+                severity,
                 message=f"'{display(value)}' in '{field}' does not exist in {target_text}.",
-                recommended_action=spec.get("recommended_action") or (
-                    f"Correct '{field}' in row {row_number}, or add the "
-                    f"missing record to {target} first."
-                ),
-                table=table, row_number=row_number, row=row,
-                actual=value, expected=f"A value that exists in {target_text}.",
+                recommended_action=spec.get("recommended_action")
+                or (f"Correct '{field}' in row {row_number}, or add the missing record to {target} first."),
+                table=table,
+                row_number=row_number,
+                row=row,
+                actual=value,
+                expected=f"A value that exists in {target_text}.",
             )
 
 
@@ -868,10 +854,10 @@ def check_references(table, rules, collector, reference_data) -> None:
 # BUSINESS RULES
 # ---------------------------------------------------------
 
+
 def check_calculations(table, rules, collector) -> None:
 
     for calculation in rules.get("calculations") or []:
-
         field = calculation["field"]
         formula = calculation["formula"]
         tolerance = calculation.get("tolerance", 0.01)
@@ -892,7 +878,6 @@ def check_calculations(table, rules, collector) -> None:
         collector.check(BUSINESS_STAGE, rule, field, expected_text)
 
         for row_number, row in table.rows:
-
             actual = to_number(table.value(row, field))
 
             values = {name: to_number(table.value(row, name)) for name in names}
@@ -907,27 +892,29 @@ def check_calculations(table, rules, collector) -> None:
                 continue
 
             if abs(actual - expected) > tolerance + 1e-9:
-
                 collector.fail(
-                    BUSINESS_STAGE, rule, field, severity,
+                    BUSINESS_STAGE,
+                    rule,
+                    field,
+                    severity,
                     message=(
                         f"'{field}' is {display(actual)} but {formula} "
                         f"= {round(expected, 2)} "
                         f"(difference {round(actual - expected, 2)})."
                     ),
-                    recommended_action=calculation.get("recommended_action") or (
-                        f"Recalculate '{field}' in row {row_number} or "
-                        f"correct the input values ({', '.join(names)})."
-                    ),
-                    table=table, row_number=row_number, row=row,
-                    actual=actual, expected=round(expected, 2),
+                    recommended_action=calculation.get("recommended_action")
+                    or (f"Recalculate '{field}' in row {row_number} or correct the input values ({', '.join(names)})."),
+                    table=table,
+                    row_number=row_number,
+                    row=row,
+                    actual=actual,
+                    expected=round(expected, 2),
                 )
 
 
 def check_comparisons(table, rules, collector, reference_data) -> None:
 
     for comparison in rules.get("comparisons") or []:
-
         field = comparison["field"]
         symbol = comparison["operator"]
         compare = COMPARISON_OPERATORS[symbol]
@@ -942,7 +929,6 @@ def check_comparisons(table, rules, collector, reference_data) -> None:
         other_field = comparison.get("other_field")
 
         if lookup_spec:
-
             if not table.has(lookup_spec["key"]):
                 missing_column(collector, BUSINESS_STAGE, rule, lookup_spec["key"])
                 continue
@@ -951,22 +937,18 @@ def check_comparisons(table, rules, collector, reference_data) -> None:
             right_text = f"{lookup_spec['source']}.{lookup_spec['field']}"
 
             if lookup is None:
-
                 collector.fail(
-                    BUSINESS_STAGE, rule, field, "WARNING",
-                    message=(
-                        f"Reference data {right_text} is not available, "
-                        f"so {rule} could not be checked."
-                    ),
-                    recommended_action=(
-                        f"Ingest {lookup_spec['source']} and re-run validation."
-                    ),
+                    BUSINESS_STAGE,
+                    rule,
+                    field,
+                    "WARNING",
+                    message=(f"Reference data {right_text} is not available, so {rule} could not be checked."),
+                    recommended_action=(f"Ingest {lookup_spec['source']} and re-run validation."),
                     actual="REFERENCE_DATA_UNAVAILABLE",
                 )
                 continue
 
         elif other_field:
-
             if not table.has(other_field):
                 missing_column(collector, BUSINESS_STAGE, rule, other_field)
                 continue
@@ -974,7 +956,6 @@ def check_comparisons(table, rules, collector, reference_data) -> None:
             right_text = other_field
 
         else:
-
             right_text = str(comparison["value"])
 
         expected_text = f"{field} {symbol} {right_text}"
@@ -982,39 +963,52 @@ def check_comparisons(table, rules, collector, reference_data) -> None:
         collector.check(BUSINESS_STAGE, rule, field, expected_text)
 
         for row_number, row in table.rows:
-
-            left = to_number(table.value(row, field))
-
             if lookup_spec:
                 key = table.value(row, lookup_spec["key"])
-                right = to_number(lookup.get(key_of(key))) if not is_blank(key) else None
+                raw_right = lookup.get(key_of(key)) if not is_blank(key) else None
             elif other_field:
-                right = to_number(table.value(row, other_field))
+                raw_right = table.value(row, other_field)
             else:
-                right = to_number(comparison["value"])
+                raw_right = comparison["value"]
+
+            raw_left = table.value(row, field)
+            left, right = to_number(raw_left), to_number(raw_right)
+
+            # Equality between text values (for example a document's
+            # content against its file name) compares the text itself.
+            if (
+                symbol in ("==", "!=")
+                and (left is None or right is None)
+                and not is_blank(raw_left)
+                and not is_blank(raw_right)
+            ):
+                left, right = key_of(raw_left), key_of(raw_right)
 
             # Missing inputs or unknown keys are reported by the data rules.
             if left is None or right is None or compare(left, right):
                 continue
 
             collector.fail(
-                BUSINESS_STAGE, rule, field, severity,
+                BUSINESS_STAGE,
+                rule,
+                field,
+                severity,
                 message=(
-                    f"{rule}: '{field}' is {display(left)}, which is not "
-                    f"{symbol} {right_text} ({display(right)})."
+                    f"{rule}: '{field}' is {display(left)}, which is not {symbol} {right_text} ({display(right)})."
                 ),
-                recommended_action=comparison.get("recommended_action") or (
-                    f"Review row {row_number} so that {expected_text}."
-                ),
-                table=table, row_number=row_number, row=row,
-                actual=left, expected=f"{symbol} {display(right)}",
+                recommended_action=comparison.get("recommended_action")
+                or (f"Review row {row_number} so that {expected_text}."),
+                table=table,
+                row_number=row_number,
+                row=row,
+                actual=left,
+                expected=f"{symbol} {display(right)}",
             )
 
 
 def check_group_balance(table, rules, collector) -> None:
 
     for balance in rules.get("group_balance") or []:
-
         group_field = balance["group_by"]
         debit_field = balance["debit"]
         credit_field = balance["credit"]
@@ -1022,11 +1016,7 @@ def check_group_balance(table, rules, collector) -> None:
         severity = balance.get("severity", "ERROR")
         rule = balance.get("name", "GROUP_BALANCE")
 
-        absent = [
-            field
-            for field in (group_field, debit_field, credit_field)
-            if not table.has(field)
-        ]
+        absent = [field for field in (group_field, debit_field, credit_field) if not table.has(field)]
 
         if absent:
             for field in absent:
@@ -1034,11 +1024,15 @@ def check_group_balance(table, rules, collector) -> None:
             continue
 
         collector.check(
-            BUSINESS_STAGE, rule, group_field,
+            BUSINESS_STAGE,
+            rule,
+            group_field,
             f"Total {debit_field} = total {credit_field} per {group_field}.",
         )
         collector.check(
-            BUSINESS_STAGE, f"{rule}_FILE_TOTAL", None,
+            BUSINESS_STAGE,
+            f"{rule}_FILE_TOTAL",
+            None,
             f"Total {debit_field} = total {credit_field} for the file.",
         )
 
@@ -1047,7 +1041,6 @@ def check_group_balance(table, rules, collector) -> None:
         first_row = {}
 
         for row_number, row in table.rows:
-
             group = table.value(row, group_field)
 
             if is_blank(group):
@@ -1060,15 +1053,16 @@ def check_group_balance(table, rules, collector) -> None:
             first_row.setdefault(group, (row_number, row))
 
         for group in first_row:
-
             difference = debits[group] - credits[group]
 
             if abs(difference) > tolerance:
-
                 row_number, row = first_row[group]
 
                 collector.fail(
-                    BUSINESS_STAGE, rule, group_field, severity,
+                    BUSINESS_STAGE,
+                    rule,
+                    group_field,
+                    severity,
                     message=(
                         f"{group_field} {group} does not balance: "
                         f"{debit_field} {round(debits[group], 2)} vs "
@@ -1080,16 +1074,21 @@ def check_group_balance(table, rules, collector) -> None:
                         f"{group} (starting at row {row_number}) so that "
                         f"debits equal credits."
                     ),
-                    table=table, row_number=row_number, row=row,
-                    actual=round(difference, 2), expected=0,
+                    table=table,
+                    row_number=row_number,
+                    row=row,
+                    actual=round(difference, 2),
+                    expected=0,
                 )
 
         total_difference = sum(debits.values()) - sum(credits.values())
 
         if abs(total_difference) > tolerance:
-
             collector.fail(
-                BUSINESS_STAGE, f"{rule}_FILE_TOTAL", None, severity,
+                BUSINESS_STAGE,
+                f"{rule}_FILE_TOTAL",
+                None,
+                severity,
                 message=(
                     f"The file does not balance: total {debit_field} "
                     f"{round(sum(debits.values()), 2)} vs total "
@@ -1099,7 +1098,8 @@ def check_group_balance(table, rules, collector) -> None:
                     "Resolve the unbalanced groups listed above; if none "
                     "are listed, check for lines with a blank group key."
                 ),
-                actual=round(total_difference, 2), expected=0,
+                actual=round(total_difference, 2),
+                expected=0,
             )
 
 
@@ -1107,12 +1107,10 @@ def check_group_balance(table, rules, collector) -> None:
 # FILE VALIDATION
 # ---------------------------------------------------------
 
+
 def has_row_rules(source_config: dict) -> bool:
 
-    return bool(
-        source_config.get("data_rules")
-        or source_config.get("business_rules")
-    )
+    return bool(source_config.get("data_rules") or source_config.get("business_rules"))
 
 
 def default_record_key(source_config: dict) -> list[str]:
@@ -1148,18 +1146,14 @@ def validate_data(
     data_rules = source_config.get("data_rules") or {}
     business_rules = source_config.get("business_rules") or {}
 
-    table = Table(*read_table(file, structure))
+    table = Table(*read_table(file, structure, source_config.get("extraction")))
 
     collector = ResultCollector(
         run_id=run_id,
         source=source,
         file=file,
         sheet=structure.get("sheet"),
-        record_key_fields=[
-            field
-            for field in default_record_key(source_config)
-            if table.has(field)
-        ],
+        record_key_fields=[field for field in default_record_key(source_config) if table.has(field)],
         max_failures_per_rule=max_failures_per_rule,
     )
 
@@ -1181,13 +1175,9 @@ def validate_data(
 
     # Count from the collector, not the logged rows, so rules whose
     # failures were capped are still counted in full.
-    errors = sum(
-        count for key, count in collector.failure_counts.items()
-        if collector.failure_severity[key] == "ERROR"
-    )
+    errors = sum(count for key, count in collector.failure_counts.items() if collector.failure_severity[key] == "ERROR")
     warnings = sum(
-        count for key, count in collector.failure_counts.items()
-        if collector.failure_severity[key] == "WARNING"
+        count for key, count in collector.failure_counts.items() if collector.failure_severity[key] == "WARNING"
     )
 
     if errors:
@@ -1233,10 +1223,7 @@ def structure_gate_result(
             f"({structure_validation['failed_stage']}); data validation "
             f"was not performed."
         ),
-        recommended_action=(
-            "Run src/validation/validate_structure.py for details, "
-            "fix the file and resubmit it."
-        ),
+        recommended_action=("Run src/validation/validate_structure.py for details, fix the file and resubmit it."),
     )
 
 
@@ -1263,7 +1250,6 @@ def validate_file(
     )
 
     if structure_validation["status"] != "STRUCTURE_VALID":
-
         results = [structure_gate_result(file, run_id, source, structure_validation)]
         key = (DATA_STAGE, "STRUCTURE_GATE", None)
 
@@ -1340,11 +1326,11 @@ def expected_data_checks(source_config: dict) -> set[tuple[str, str]]:
 # COMMAND LINE
 # ---------------------------------------------------------
 
+
 def print_file_summary(validation: dict) -> None:
 
     line = (
-        f"{validation['file']} -> {validation['source']} -> "
-        f"{validation['status']} ({validation['rows_checked']} rows"
+        f"{validation['file']} -> {validation['source']} -> {validation['status']} ({validation['rows_checked']} rows"
     )
 
     if validation["errors"]:
@@ -1365,9 +1351,7 @@ def print_file_summary(validation: dict) -> None:
 
 def main() -> int:
 
-    args = parse_arguments(
-        "Validate the data quality and business rules of ingested source files."
-    )
+    args = parse_arguments("Validate the data quality and business rules of ingested source files.")
 
     source_registry = load_source_registry()
 
@@ -1395,7 +1379,6 @@ def main() -> int:
     status_counts = Counter()
 
     for source, file in targets:
-
         source_config = source_registry[source]
 
         if not has_row_rules(source_config):
@@ -1403,7 +1386,6 @@ def main() -> int:
             continue
 
         try:
-
             validation, quarantine_results = validate_file(
                 file=file,
                 run_id=run_id,
@@ -1414,7 +1396,6 @@ def main() -> int:
             )
 
         except Exception as error:
-
             # Record the crash against this file and carry on with
             # the rest, rather than stopping the whole batch.
             key = (DATA_STAGE, "VALIDATION_EXCEPTION", None)
@@ -1478,12 +1459,10 @@ def main() -> int:
     print(f"Validation errors:          {status_counts['VALIDATION_ERROR']}")
     print(f"Not applicable (no rules):  {status_counts['NOT_APPLICABLE']}")
     print(f"Validation ID:              {validation_id}")
-    print(f"Detailed results:           logs/validation_results.csv")
+    print("Detailed results:           logs/validation_results.csv")
 
     invalid = (
-        status_counts["DATA_INVALID"]
-        + status_counts["SKIPPED_STRUCTURE_INVALID"]
-        + status_counts["VALIDATION_ERROR"]
+        status_counts["DATA_INVALID"] + status_counts["SKIPPED_STRUCTURE_INVALID"] + status_counts["VALIDATION_ERROR"]
     )
 
     if invalid:
@@ -1494,5 +1473,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-
     sys.exit(main())

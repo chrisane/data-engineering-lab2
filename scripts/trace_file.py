@@ -25,7 +25,6 @@ Usage:
 import argparse
 import os
 import sys
-
 from collections import defaultdict
 from pathlib import Path
 
@@ -47,7 +46,6 @@ from common import (  # noqa: E402
     read_manifest,
 )
 
-
 # ---------------------------------------------------------
 # OUTPUT
 # ---------------------------------------------------------
@@ -60,12 +58,22 @@ YELLOW = "\033[93m"
 GREEN = "\033[92m"
 
 GOOD = {
-    "INGESTED", "STRUCTURE_VALID", "DATA_VALID", "COMPLETE",
-    "NOT_APPLICABLE", "ELIGIBLE", "PASS",
+    "INGESTED",
+    "STRUCTURE_VALID",
+    "DATA_VALID",
+    "COMPLETE",
+    "NOT_APPLICABLE",
+    "ELIGIBLE",
+    "PASS",
 }
 NOTICE = {
-    "SKIPPED_DUPLICATE", "IGNORED", "DATA_VALID_WITH_WARNINGS",
-    "STOPPED_AT_FAILURE", "HELD", "WARNING",
+    "SKIPPED_DUPLICATE",
+    "IGNORED",
+    "DATA_VALID_WITH_WARNINGS",
+    "STOPPED_AT_FAILURE",
+    "HELD",
+    "WARNING",
+    "WITHDRAWN",
 }
 
 
@@ -84,7 +92,7 @@ def enable_ansi_colours() -> None:
         if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
             kernel32.SetConsoleMode(handle, mode.value | 0x0004)
 
-    except Exception:
+    except Exception:  # noqa: S110 - colours are cosmetic; plain text still works  # nosec B110
         pass
 
 
@@ -105,6 +113,7 @@ def heading(number: int, title: str) -> None:
 # FILE RESOLUTION
 # ---------------------------------------------------------
 
+
 def resolve_file(query: str, manifest: list[dict], registry: dict) -> list[str]:
     """
     Return the manifest file_name(s) matching the query: an exact file
@@ -119,9 +128,7 @@ def resolve_file(query: str, manifest: list[dict], registry: dict) -> list[str]:
         return exact
 
     if query in registry:
-        by_source = sorted({
-            row["file_name"] for row in manifest if row["source"] == query
-        })
+        by_source = sorted({row["file_name"] for row in manifest if row["source"] == query})
         if by_source:
             return by_source
 
@@ -132,19 +139,16 @@ def resolve_file(query: str, manifest: list[dict], registry: dict) -> list[str]:
 # SECTIONS
 # ---------------------------------------------------------
 
+
 def show_ingestion(rows: list[dict]) -> None:
 
     heading(1, "INGESTION HISTORY")
 
     for row in rows:
-
         path = row.get("raw_path") or row.get("quarantine_path") or ""
         file_hash = (row.get("file_hash") or "")[:12] or "-"
 
-        print(
-            f"  {row['run_id']}  {row['ingested_at']}  "
-            f"{status_text(row['status'], 18)} {file_hash:<13} {path}"
-        )
+        print(f"  {row['run_id']}  {row['ingested_at']}  {status_text(row['status'], 18)} {file_hash:<13} {path}")
 
         if row.get("message"):
             print(f"  {DIM}{'':<21}{row['message']}{RESET}")
@@ -163,12 +167,18 @@ def results_for(
         return results_index.get((status_row["validation_id"], file_name), [])
 
     # Validated before validation IDs existed: match by run, file and stage.
-    stages = {STRUCTURE_STAGE} if stage == STRUCTURE_STAGE else {
-        DATA_STAGE, "BUSINESS_RULE_VALIDATION",
-    }
+    stages = (
+        {STRUCTURE_STAGE}
+        if stage == STRUCTURE_STAGE
+        else {
+            DATA_STAGE,
+            "BUSINESS_RULE_VALIDATION",
+        }
+    )
 
     return [
-        row for row in result_rows
+        row
+        for row in result_rows
         if row["run_id"] == status_row["run_id"]
         and row["file"] == file_name
         and row["stage"] in stages
@@ -185,7 +195,6 @@ def show_validation_history(status_rows: list[dict]) -> None:
         return
 
     for row in status_rows:
-
         print(
             f"  {row.get('validation_id') or '(no validation ID)':<38} "
             f"{row['stage']:<21} {status_text(row['status'], 26)} "
@@ -204,7 +213,6 @@ def show_failures(stage_results: dict[str, list[dict]], examples: int) -> None:
     any_failures = False
 
     for stage, rows in stage_results.items():
-
         failures = [row for row in rows if row["status"] == "FAIL"]
 
         if not failures:
@@ -220,14 +228,13 @@ def show_failures(stage_results: dict[str, list[dict]], examples: int) -> None:
         print(f"  {BOLD}{stage}{RESET}")
 
         for (severity, rule, field), group in sorted(
-            groups.items(), key=lambda item: (item[0][0] != "ERROR", item[0][1]),
+            groups.items(),
+            key=lambda item: (item[0][0] != "ERROR", item[0][1]),
         ):
-
             label = f"{rule}" + (f" on '{field}'" if field else "")
             print(f"  {status_text(severity)} {BOLD}{label}{RESET} - {len(group)} logged failure(s)")
 
             for row in group[:examples]:
-
                 location = []
                 if row.get("sheet"):
                     location.append(f"sheet {row['sheet']}")
@@ -263,11 +270,7 @@ def show_coverage(assessments: list[dict]) -> None:
     heading(4, "COVERAGE (did every configured check run?)")
 
     for assessment in assessments:
-
-        print(
-            f"  {assessment['stage']:<21} "
-            f"{status_text(assessment['coverage_status'], 19)} {assessment['detail']}"
-        )
+        print(f"  {assessment['stage']:<21} {status_text(assessment['coverage_status'], 19)} {assessment['detail']}")
 
         if assessment.get("missing_checks"):
             print(f"  {DIM}{'':<21} Not executed: {assessment['missing_checks']}{RESET}")
@@ -278,8 +281,7 @@ def show_eligibility(decision: dict | None, run_id: str) -> None:
     heading(5, "LOAD ELIGIBILITY")
 
     if decision is None:
-        print("  No load decision recorded for this file yet "
-              "(run src/validation/load_eligibility.py).")
+        print("  No load decision recorded for this file yet (run src/validation/load_eligibility.py).")
         return
 
     print(
@@ -289,13 +291,16 @@ def show_eligibility(decision: dict | None, run_id: str) -> None:
     )
 
     if decision["run_id"] != run_id:
-        print(f"  {YELLOW}Note: this decision concerns version {decision['run_id']}, "
-              f"not the traced version {run_id}.{RESET}")
+        print(
+            f"  {YELLOW}Note: this decision concerns version {decision['run_id']}, "
+            f"not the traced version {run_id}.{RESET}"
+        )
 
 
 # ---------------------------------------------------------
 # VERDICT
 # ---------------------------------------------------------
+
 
 def verdict(
     latest_ingestion: dict,
@@ -312,9 +317,10 @@ def verdict(
             f"{latest_ingestion['status']}: {latest_ingestion.get('message') or 'no reason recorded'}"
         )
 
-    if (
-        latest_ingestion["run_id"] > traced_version["run_id"]
-        and latest_ingestion["status"] not in ("INGESTED", "SKIPPED_DUPLICATE", "IGNORED")
+    if latest_ingestion["run_id"] > traced_version["run_id"] and latest_ingestion["status"] not in (
+        "INGESTED",
+        "SKIPPED_DUPLICATE",
+        "IGNORED",
     ):
         return (
             f"A newer submission ({latest_ingestion['run_id']}) was rejected at "
@@ -353,13 +359,16 @@ def verdict(
 # MAIN
 # ---------------------------------------------------------
 
+
 def main() -> int:
 
     parser = argparse.ArgumentParser(description="Explain why a file passed or failed.")
     parser.add_argument("query", help="File name, source name, or part of a file name.")
     parser.add_argument("--run-id", help="Trace the version ingested in this run.")
     parser.add_argument(
-        "--examples", type=int, default=5,
+        "--examples",
+        type=int,
+        default=5,
         help="Failures shown per rule (default 5). All are in logs/validation_results.csv.",
     )
     args = parser.parse_args()
@@ -422,13 +431,9 @@ def main() -> int:
     assessments = []
 
     if traced:
-
         run_id = traced["run_id"]
 
-        version_status_rows = [
-            row for row in status_rows
-            if row["run_id"] == run_id and row["file"] == short_name
-        ]
+        version_status_rows = [row for row in status_rows if row["run_id"] == run_id and row["file"] == short_name]
 
         show_validation_history(version_status_rows)
 
@@ -438,31 +443,46 @@ def main() -> int:
         for stage, status_row in ((STRUCTURE_STAGE, structure), (DATA_STAGE, data)):
             if status_row:
                 stage_results[stage] = results_for(
-                    status_row, short_name, stage, result_rows, results_index,
+                    status_row,
+                    short_name,
+                    stage,
+                    result_rows,
+                    results_index,
                 )
 
         show_failures(stage_results, args.examples)
 
         if source_config:
             assessments = assess_file(
-                source, short_name, run_id, source_config, status_rows, results_index,
+                source,
+                short_name,
+                run_id,
+                source_config,
+                status_rows,
+                results_index,
             )
             show_coverage(assessments)
 
         decisions = [
-            row for row in read_log(ELIGIBILITY_LOG_FILE)
-            if row.get("file") == short_name and row["source"] == source
+            row for row in read_log(ELIGIBILITY_LOG_FILE) if row.get("file") == short_name and row["source"] == source
         ]
         show_eligibility(decisions[-1] if decisions else None, run_id)
 
-    print(f"\n{BOLD}VERDICT:{RESET} " + verdict(
-        ingestion_rows[-1], traced, structure, data, stage_results, assessments,
-    ))
+    print(
+        f"\n{BOLD}VERDICT:{RESET} "
+        + verdict(
+            ingestion_rows[-1],
+            traced,
+            structure,
+            data,
+            stage_results,
+            assessments,
+        )
+    )
     print()
 
     return 0
 
 
 if __name__ == "__main__":
-
     sys.exit(main())

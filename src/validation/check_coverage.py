@@ -27,7 +27,6 @@ Usage:
 
 import argparse
 import sys
-
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -49,7 +48,6 @@ from common import (
 )
 from validate_data import expected_data_checks, has_row_rules
 from validate_structure import expected_structure_checks
-
 
 COVERAGE_FIELDS = [
     "coverage_id",
@@ -74,13 +72,13 @@ PASSING_COVERAGE = {"COMPLETE", "STOPPED_AT_FAILURE", "NOT_APPLICABLE"}
 # RESULT INDEX
 # ---------------------------------------------------------
 
+
 def index_results(result_rows: list[dict]) -> dict[tuple[str, str], list[dict]]:
     """Group validation results by (validation_id, file name)."""
 
     index = defaultdict(list)
 
     for row in result_rows:
-
         if row.get("validation_id"):
             index[(row["validation_id"], row["file"])].append(row)
 
@@ -89,10 +87,7 @@ def index_results(result_rows: list[dict]) -> dict[tuple[str, str], list[dict]]:
 
 def format_checks(checks: set[tuple[str, str]], limit: int = 10) -> str:
 
-    shown = [
-        f"{rule}({field})" if field else rule
-        for rule, field in sorted(checks)[:limit]
-    ]
+    shown = [f"{rule}({field})" if field else rule for rule, field in sorted(checks)[:limit]]
 
     if len(checks) > limit:
         shown.append(f"+{len(checks) - limit} more")
@@ -103,6 +98,7 @@ def format_checks(checks: set[tuple[str, str]], limit: int = 10) -> str:
 # ---------------------------------------------------------
 # ASSESSMENT
 # ---------------------------------------------------------
+
 
 def assess_stage(
     source: str,
@@ -131,8 +127,7 @@ def assess_stage(
             "executed_checks": 0,
             "missing_checks": format_checks(expected),
             "detail": (
-                f"No {stage} result exists for this file in run {run_id}. "
-                f"Run the validation script for this run."
+                f"No {stage} result exists for this file in run {run_id}. Run the validation script for this run."
             ),
         }
 
@@ -157,7 +152,6 @@ def assess_stage(
     record["executed_checks"] = len(executed & expected)
 
     if status["status"] in STOPPED_STATUSES:
-
         failures = [row for row in rows if row["status"] == "FAIL"]
 
         if failures:
@@ -174,8 +168,7 @@ def assess_stage(
             **record,
             "coverage_status": "INCOMPLETE",
             "detail": (
-                f"Status is {status['status']} but no failing check was "
-                f"recorded, so the reason cannot be traced."
+                f"Status is {status['status']} but no failing check was recorded, so the reason cannot be traced."
             ),
         }
 
@@ -212,32 +205,42 @@ def assess_file(
 
     assessments = [
         assess_stage(
-            source, file_name, run_id, STRUCTURE_STAGE,
+            source,
+            file_name,
+            run_id,
+            STRUCTURE_STAGE,
             expected_structure_checks(source_config),
-            status_rows, results_index,
+            status_rows,
+            results_index,
         )
     ]
 
     if has_row_rules(source_config):
-
-        assessments.append(assess_stage(
-            source, file_name, run_id, DATA_STAGE,
-            expected_data_checks(source_config),
-            status_rows, results_index,
-        ))
+        assessments.append(
+            assess_stage(
+                source,
+                file_name,
+                run_id,
+                DATA_STAGE,
+                expected_data_checks(source_config),
+                status_rows,
+                results_index,
+            )
+        )
 
     else:
-
-        assessments.append({
-            "run_id": run_id,
-            "source": source,
-            "file": file_name,
-            "stage": DATA_STAGE,
-            "coverage_status": "NOT_APPLICABLE",
-            "expected_checks": 0,
-            "executed_checks": 0,
-            "detail": "No data rules configured; structure checks only.",
-        })
+        assessments.append(
+            {
+                "run_id": run_id,
+                "source": source,
+                "file": file_name,
+                "stage": DATA_STAGE,
+                "coverage_status": "NOT_APPLICABLE",
+                "expected_checks": 0,
+                "executed_checks": 0,
+                "detail": "No data rules configured; structure checks only.",
+            }
+        )
 
     return assessments
 
@@ -255,20 +258,21 @@ def assess_run(
     assessments = []
 
     for row in ingested_files_for_run(manifest, run_id):
-
         source = row["source"]
 
         if source not in source_registry:
             continue
 
-        assessments.extend(assess_file(
-            source=source,
-            file_name=Path(row["file_name"]).name,
-            run_id=run_id,
-            source_config=source_registry[source],
-            status_rows=status_rows,
-            results_index=results_index,
-        ))
+        assessments.extend(
+            assess_file(
+                source=source,
+                file_name=Path(row["file_name"]).name,
+                run_id=run_id,
+                source_config=source_registry[source],
+                status_rows=status_rows,
+                results_index=results_index,
+            )
+        )
 
     return assessments
 
@@ -277,11 +281,10 @@ def assess_run(
 # COMMAND LINE
 # ---------------------------------------------------------
 
+
 def main() -> int:
 
-    parser = argparse.ArgumentParser(
-        description="Verify that every configured validation check ran."
-    )
+    parser = argparse.ArgumentParser(description="Verify that every configured validation check ran.")
     parser.add_argument(
         "--run-id",
         help="Ingestion run to check (default: latest run that ingested files).",
@@ -315,31 +318,22 @@ def main() -> int:
     counts = Counter(assessment["coverage_status"] for assessment in assessments)
 
     structure_only = sum(
-        1 for assessment in assessments
-        if assessment["stage"] == DATA_STAGE
-        and assessment["coverage_status"] == "NOT_APPLICABLE"
+        1
+        for assessment in assessments
+        if assessment["stage"] == DATA_STAGE and assessment["coverage_status"] == "NOT_APPLICABLE"
     )
 
     print(f"\nVALIDATION COVERAGE: {run_id}")
     print(f"Coverage ID: {coverage_id}\n")
 
-    gaps = [
-        assessment for assessment in assessments
-        if assessment["coverage_status"] not in PASSING_COVERAGE
-    ]
+    gaps = [assessment for assessment in assessments if assessment["coverage_status"] not in PASSING_COVERAGE]
 
     for gap in gaps:
-        print(
-            f"{gap['file']} -> {gap['stage']} -> {gap['coverage_status']}\n"
-            f"   {gap['detail']}"
-        )
+        print(f"{gap['file']} -> {gap['stage']} -> {gap['coverage_status']}\n   {gap['detail']}")
         if gap.get("missing_checks"):
             print(f"   Not executed: {gap['missing_checks']}")
 
-    checks_verified = sum(
-        assessment.get("executed_checks") or 0
-        for assessment in assessments
-    )
+    checks_verified = sum(assessment.get("executed_checks") or 0 for assessment in assessments)
 
     print("\nCOVERAGE SUMMARY")
     print("--------------------------------------------")
@@ -356,5 +350,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-
     sys.exit(main())

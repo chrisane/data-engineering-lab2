@@ -7,7 +7,6 @@ import pytest
 from validate_data import ReferenceData, compile_formula, validate_data
 from validate_structure import validate_source
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TEST_DATA = PROJECT_ROOT / "tests" / "test_data"
 
@@ -82,6 +81,7 @@ def failures(validation: dict) -> list[tuple]:
 # STRUCTURE
 # ---------------------------------------------------------
 
+
 def test_corrupted_workbook_fails_readability():
 
     validation = validate_source(
@@ -98,13 +98,9 @@ def test_corrupted_workbook_fails_readability():
 def test_missing_sheet_and_missing_column(tmp_path):
 
     wrong_sheet = make_workbook(tmp_path / "a.xlsx", [VALID_ROW], sheet="Data")
-    missing_column = make_workbook(
-        tmp_path / "b.xlsx", [VALID_ROW[:-1]], headers=HEADERS[:-1]
-    )
+    missing_column = make_workbook(tmp_path / "b.xlsx", [VALID_ROW[:-1]], headers=HEADERS[:-1])
 
-    assert validate_source(wrong_sheet, "T", "purchase_orders", REGISTRY)[
-        "failed_stage"
-    ] == "REQUIRED_SHEET"
+    assert validate_source(wrong_sheet, "T", "purchase_orders", REGISTRY)["failed_stage"] == "REQUIRED_SHEET"
 
     result = validate_source(missing_column, "T", "purchase_orders", REGISTRY)
     assert result["failed_stage"] == "REQUIRED_COLUMN"
@@ -123,6 +119,7 @@ def test_empty_workbook_fails_minimum_rows(tmp_path):
 # DATA AND BUSINESS RULES
 # ---------------------------------------------------------
 
+
 def test_clean_file_passes(tmp_path):
 
     file = make_workbook(tmp_path / "po.xlsx", [VALID_ROW])
@@ -136,11 +133,11 @@ def test_clean_file_passes(tmp_path):
 def test_each_rule_reports_the_exact_row_and_field(tmp_path):
 
     rows = [
-        VALID_ROW,                                                              # row 2
+        VALID_ROW,  # row 2
         ["PO000002", None, datetime(2026, 1, 5), 1000, 150, 1150, "APPROVED"],  # row 3 blank supplier
         ["PO000001", "SUP0001", datetime(2026, 1, 5), 1000, 150, 1150, "APPROVED"],  # row 4 duplicate
-        ["PO000004", "SUP0001", "not a date", -5, 0, -5, "APPROVED"],           # row 5 date, range
-        ["PO000005", "SUP0001", datetime(2026, 1, 5), "abc", 0, 0, "OPEN"],     # row 6 type, status
+        ["PO000004", "SUP0001", "not a date", -5, 0, -5, "APPROVED"],  # row 5 date, range
+        ["PO000005", "SUP0001", datetime(2026, 1, 5), "abc", 0, 0, "OPEN"],  # row 6 type, status
         ["P-6", "SUP0001", datetime(2026, 1, 5), 1000, 150, 9999, "APPROVED"],  # row 7 pattern, calc
         ["PO000008", "SUP0001", datetime(2026, 1, 5), 200000, 0, 200000, "APPROVED"],  # row 8 max
     ]
@@ -150,17 +147,19 @@ def test_each_rule_reports_the_exact_row_and_field(tmp_path):
     validation = run_data_validation(file)
 
     assert validation["status"] == "DATA_INVALID"
-    assert failures(validation) == sorted([
-        ("REQUIRED_VALUE", "supplier_id", 3),
-        ("UNIQUE", "po_id", 4),
-        ("VALID_DATE", "po_date", 5),
-        ("NUMERIC_RANGE", "po_value", 5),
-        ("DATA_TYPE", "po_value", 6),
-        ("ALLOWED_VALUE", "status", 6),
-        ("PATTERN", "po_id", 7),
-        ("CALCULATION", "total", 7),
-        ("MAX_ORDER", "po_value", 8),
-    ])
+    assert failures(validation) == sorted(
+        [
+            ("REQUIRED_VALUE", "supplier_id", 3),
+            ("UNIQUE", "po_id", 4),
+            ("VALID_DATE", "po_date", 5),
+            ("NUMERIC_RANGE", "po_value", 5),
+            ("DATA_TYPE", "po_value", 6),
+            ("ALLOWED_VALUE", "status", 6),
+            ("PATTERN", "po_id", 7),
+            ("CALCULATION", "total", 7),
+            ("MAX_ORDER", "po_value", 8),
+        ]
+    )
 
     duplicate = next(r for r in validation["results"] if r["rule"] == "UNIQUE")
     assert duplicate["record_key"] == "po_id=PO000001"
@@ -191,10 +190,7 @@ def test_failures_are_capped_but_counted(tmp_path):
         max_failures_per_rule=3,
     )
 
-    required = [
-        r for r in validation["results"]
-        if r["rule"] == "REQUIRED_VALUE" and r["status"] == "FAIL"
-    ]
+    required = [r for r in validation["results"] if r["rule"] == "REQUIRED_VALUE" and r["status"] == "FAIL"]
 
     # 3 individual rows plus one summary line.
     assert len(required) == 4
@@ -209,8 +205,7 @@ def test_group_balance_flags_unbalanced_journal(tmp_path):
             "structure": {"sheet": "Sheet1"},
             "business_rules": {
                 "group_balance": [
-                    {"name": "JOURNAL_BALANCE", "group_by": "journal_id",
-                     "debit": "debit", "credit": "credit"},
+                    {"name": "JOURNAL_BALANCE", "group_by": "journal_id", "debit": "debit", "credit": "credit"},
                 ],
             },
         },
@@ -223,22 +218,30 @@ def test_group_balance_flags_unbalanced_journal(tmp_path):
     )
 
     validation = validate_data(
-        file, "TEST", "general_ledger", registry,
+        file,
+        "TEST",
+        "general_ledger",
+        registry,
         ReferenceData([], "TEST", registry),
     )
 
-    assert failures(validation) == sorted([
-        ("JOURNAL_BALANCE", "journal_id", 4),
-        ("JOURNAL_BALANCE_FILE_TOTAL", None, None),
-    ])
+    assert failures(validation) == sorted(
+        [
+            ("JOURNAL_BALANCE", "journal_id", 4),
+            ("JOURNAL_BALANCE_FILE_TOTAL", None, None),
+        ]
+    )
 
 
-@pytest.mark.parametrize("formula", [
-    "__import__('os')",
-    "net_amount.real",
-    "net_amount ** 2",
-    "'text'",
-])
+@pytest.mark.parametrize(
+    "formula",
+    [
+        "__import__('os')",
+        "net_amount.real",
+        "net_amount ** 2",
+        "'text'",
+    ],
+)
 def test_unsafe_formulas_are_rejected(formula):
 
     with pytest.raises(ValueError):
@@ -250,9 +253,7 @@ def test_gate_stops_counting_at_minimum_rows(tmp_path):
     file = make_workbook(tmp_path / "po.xlsx", [VALID_ROW] * 5)
 
     full = validate_source(file, "T", "purchase_orders", REGISTRY)
-    gate = validate_source(
-        file, "T", "purchase_orders", REGISTRY, full_row_count=False
-    )
+    gate = validate_source(file, "T", "purchase_orders", REGISTRY, full_row_count=False)
 
     assert full["row_count"] == 5
     assert gate["row_count"] == 1

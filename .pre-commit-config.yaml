@@ -1,0 +1,26 @@
+# Local quality gate: pre-commit install  (then runs on every git commit)
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: python -m ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: python -m ruff format
+        language: system
+        types: [python]
+      - id: config-check
+        name: pipeline configuration check
+        entry: python scripts/sync_metadata.py --check
+        language: system
+        pass_filenames: false
+        files: ^config/
+      - id: unit-tests
+        name: unit tests
+        entry: python -m pytest tests -q -x
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

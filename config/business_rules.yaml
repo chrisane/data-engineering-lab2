@@ -63,3 +63,35 @@ finance:
   posting_period_must_be_open: true
   journal_must_balance: true
   source_transaction_reference_required: true
+
+# ---------------------------------------------------------
+# Parameters used by warehouse logic and marts (synchronised to
+# meta.Setting by scripts/sync_metadata.py).
+# ---------------------------------------------------------
+reporting:
+  # The synthetic data covers calendar 2026; schedules (depreciation,
+  # stock positions) are built up to this date.
+  as_at_date: '2026-12-31'
+
+cashup:
+  # Absolute cash variance (NAD) still treated as BALANCED.
+  variance_tolerance_nad: 1.00
+  # Difference (NAD) between declared takings and POS sales per payment
+  # method that is reported as a reconciliation exception.
+  pos_tolerance_nad: 1.00
+
+replenishment:
+  # Reorder point = average daily demand x (supplier lead time + safety days).
+  safety_stock_days: 7
+  # Default lead time when a product has no goods-receipt history.
+  default_lead_time_days: 7
+  # Stock cover (days of demand) above which stock is excessive.
+  excess_cover_days: 60
+  # A product with stock but no sale for this many days is slow-moving.
+  slow_moving_days: 45
+  # Demand window used to average daily sales.
+  demand_window_days: 90
+
+purchasing:
+  # Invoice net amount may differ from the ordered value by this much (NAD).
+  invoice_match_tolerance_nad: 1.00

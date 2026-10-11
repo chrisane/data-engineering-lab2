@@ -2,12 +2,10 @@ import csv
 import hashlib
 import shutil
 import traceback
-
 from datetime import datetime
 from pathlib import Path
 
 import yaml
-
 
 # ---------------------------------------------------------
 # PROJECT PATHS
@@ -22,9 +20,7 @@ QUARANTINE_DIR = PROJECT_ROOT / "data" / "quarantine"
 MANIFEST_FILE = PROJECT_ROOT / "logs" / "ingestion_manifest.csv"
 RUN_LOG_FILE = PROJECT_ROOT / "logs" / "ingestion_runs.csv"
 
-SOURCE_REGISTRY_FILE = (
-    PROJECT_ROOT / "config" / "source_registry.yaml"
-)
+SOURCE_REGISTRY_FILE = PROJECT_ROOT / "config" / "source_registry.yaml"
 
 SUPPORTED_EXTENSIONS = {".xlsx", ".csv", ".pdf"}
 
@@ -74,6 +70,7 @@ REJECTED_STATUSES = {
 # CONFIGURATION
 # ---------------------------------------------------------
 
+
 def load_registry_config() -> dict:
 
     with open(
@@ -92,6 +89,7 @@ def load_source_registry() -> dict:
 # ---------------------------------------------------------
 # MANIFEST AND RUN LOG
 # ---------------------------------------------------------
+
 
 def upgrade_manifest_header() -> None:
     """
@@ -116,11 +114,8 @@ def upgrade_manifest_header() -> None:
     if current_header == MANIFEST_FIELDS:
         return
 
-    if current_header != MANIFEST_FIELDS[:len(current_header)]:
-        raise ValueError(
-            f"Unrecognised manifest header in {MANIFEST_FILE}: "
-            f"{current_header}"
-        )
+    if current_header != MANIFEST_FIELDS[: len(current_header)]:
+        raise ValueError(f"Unrecognised manifest header in {MANIFEST_FILE}: {current_header}")
 
     lines[0] = ",".join(MANIFEST_FIELDS) + "\n"
 
@@ -150,7 +145,6 @@ def append_csv_row(
         newline="",
         encoding="utf-8",
     ) as log_file:
-
         writer = csv.DictWriter(
             log_file,
             fieldnames=fieldnames,
@@ -182,15 +176,9 @@ def write_manifest_record(
             "file_name": file.relative_to(INCOMING_DIR).as_posix(),
             "file_hash": file_hash,
             "ingested_at": datetime.now().isoformat(timespec="seconds"),
-            "raw_path": (
-                raw_path.relative_to(PROJECT_ROOT).as_posix()
-                if raw_path else None
-            ),
+            "raw_path": (raw_path.relative_to(PROJECT_ROOT).as_posix() if raw_path else None),
             "status": status,
-            "quarantine_path": (
-                quarantine_path.relative_to(PROJECT_ROOT).as_posix()
-                if quarantine_path else None
-            ),
+            "quarantine_path": (quarantine_path.relative_to(PROJECT_ROOT).as_posix() if quarantine_path else None),
             "message": message,
         },
     )
@@ -214,13 +202,9 @@ def load_ingested_hashes() -> dict[str, str]:
         newline="",
         encoding="utf-8",
     ) as manifest:
-
         for row in csv.DictReader(manifest):
-
             if row["status"] == "INGESTED":
-                ingested[row["file_hash"]] = (
-                    f"{row['run_id']}/{row['file_name']}"
-                )
+                ingested[row["file_hash"]] = f"{row['run_id']}/{row['file_name']}"
 
     return ingested
 
@@ -228,6 +212,7 @@ def load_ingested_hashes() -> dict[str, str]:
 # ---------------------------------------------------------
 # FILE CHECKS
 # ---------------------------------------------------------
+
 
 def create_run_id() -> str:
 
@@ -241,7 +226,6 @@ def calculate_file_hash(file: Path) -> str:
     sha256 = hashlib.sha256()
 
     with open(file, "rb") as file_handle:
-
         while chunk := file_handle.read(8192):
             sha256.update(chunk)
 
@@ -256,9 +240,20 @@ def identify_source(
     relative_path = file.relative_to(INCOMING_DIR)
 
     for source_name, source_config in source_registry.items():
-
         if relative_path.full_match(source_config["path"]):
             return source_name
+
+    return None
+
+
+def withdrawn_entry(file: Path, withdrawn: list[dict]) -> dict | None:
+    """The registry withdrawal entry matching this file, if any."""
+
+    relative_path = file.relative_to(INCOMING_DIR)
+
+    for entry in withdrawn:
+        if relative_path.full_match(entry["pattern"]):
+            return entry
 
     return None
 
@@ -270,10 +265,7 @@ def is_ignored(
 
     relative_path = file.relative_to(INCOMING_DIR)
 
-    return any(
-        relative_path.full_match(pattern)
-        for pattern in ignored_patterns
-    )
+    return any(relative_path.full_match(pattern) for pattern in ignored_patterns)
 
 
 def validate_file_format(
@@ -304,19 +296,14 @@ def verify_file_content(
     expected_format = expected_format.lower()
 
     if expected_format in FILE_SIGNATURES:
-
         signature = FILE_SIGNATURES[expected_format]
 
         if head.startswith(signature):
             return True, None
 
-        return False, (
-            f"File content is not a valid .{expected_format} file "
-            f"(first bytes: {head[:8]!r})."
-        )
+        return False, (f"File content is not a valid .{expected_format} file (first bytes: {head[:8]!r}).")
 
     if expected_format == "csv":
-
         if b"\x00" in head:
             return False, "CSV file contains binary content."
 
@@ -336,6 +323,7 @@ def verify_file_content(
 # ---------------------------------------------------------
 # FILE PLACEMENT
 # ---------------------------------------------------------
+
 
 def copy_preserving_path(
     file: Path,
@@ -367,12 +355,14 @@ def copy_preserving_path(
 # INGESTION
 # ---------------------------------------------------------
 
+
 def process_file(
     file: Path,
     run_id: str,
     source_registry: dict,
     ignored_patterns: list[str],
     ingested_hashes: dict[str, str],
+    withdrawn: list[dict] | None = None,
 ) -> dict:
     """
     Classify, verify and (if valid and new) copy one incoming file
@@ -380,12 +370,14 @@ def process_file(
     """
 
     if is_ignored(file, ignored_patterns):
-
         message = "File is listed under ignored_files in the source registry."
 
         # Recorded so "why was this file not ingested?" always has an answer.
         write_manifest_record(
-            run_id, "IGNORED", file, None,
+            run_id,
+            "IGNORED",
+            file,
+            None,
             status="IGNORED",
             message=message,
         )
@@ -397,19 +389,42 @@ def process_file(
             "message": message,
         }
 
-    source = identify_source(file, source_registry)
+    withdrawal = withdrawn_entry(file, withdrawn or [])
 
-    if source is None:
-
-        file_hash = calculate_file_hash(file)
-
+    if withdrawal:
         message = (
-            "No source in the registry matches this file name. "
-            "Register the source or rename the file."
+            f"File is withdrawn ({withdrawal.get('withdrawn_on')}): "
+            f"{' '.join(str(withdrawal.get('reason', '')).split())}"
         )
 
         write_manifest_record(
-            run_id, "UNKNOWN", file, file_hash,
+            run_id,
+            identify_source(file, source_registry) or "UNKNOWN",
+            file,
+            None,
+            status="WITHDRAWN",
+            message=message,
+        )
+
+        return {
+            "source": "WITHDRAWN",
+            "status": "WITHDRAWN",
+            "file_hash": None,
+            "message": message,
+        }
+
+    source = identify_source(file, source_registry)
+
+    if source is None:
+        file_hash = calculate_file_hash(file)
+
+        message = "No source in the registry matches this file name. Register the source or rename the file."
+
+        write_manifest_record(
+            run_id,
+            "UNKNOWN",
+            file,
+            file_hash,
             status="UNREGISTERED",
             message=message,
         )
@@ -428,20 +443,14 @@ def process_file(
     message = None
 
     if file.stat().st_size == 0:
-
         status = "EMPTY_FILE"
         message = "File is empty (0 bytes)."
 
     elif not validate_file_format(file, source, source_registry):
-
         status = "INVALID_FORMAT"
-        message = (
-            f"Expected a .{expected_format} file, "
-            f"received '{file.suffix}'."
-        )
+        message = f"Expected a .{expected_format} file, received '{file.suffix}'."
 
     else:
-
         content_valid, reason = verify_file_content(
             file,
             expected_format,
@@ -452,7 +461,6 @@ def process_file(
             message = reason
 
     if status in REJECTED_STATUSES:
-
         steward = (source_registry[source].get("governance") or {}).get("data_steward")
 
         if steward:
@@ -464,7 +472,10 @@ def process_file(
         )
 
         write_manifest_record(
-            run_id, source, file, file_hash,
+            run_id,
+            source,
+            file,
+            file_hash,
             status=status,
             quarantine_path=quarantine_path,
             message=message,
@@ -478,14 +489,13 @@ def process_file(
         }
 
     if file_hash in ingested_hashes:
-
-        message = (
-            f"Identical content already ingested as "
-            f"{ingested_hashes[file_hash]}."
-        )
+        message = f"Identical content already ingested as {ingested_hashes[file_hash]}."
 
         write_manifest_record(
-            run_id, source, file, file_hash,
+            run_id,
+            source,
+            file,
+            file_hash,
             status="SKIPPED_DUPLICATE",
             message=message,
         )
@@ -503,14 +513,15 @@ def process_file(
     )
 
     write_manifest_record(
-        run_id, source, file, file_hash,
+        run_id,
+        source,
+        file,
+        file_hash,
         status="INGESTED",
         raw_path=raw_path,
     )
 
-    ingested_hashes[file_hash] = (
-        f"{run_id}/{file.relative_to(INCOMING_DIR).as_posix()}"
-    )
+    ingested_hashes[file_hash] = f"{run_id}/{file.relative_to(INCOMING_DIR).as_posix()}"
 
     return {
         "source": source,
@@ -524,14 +535,12 @@ def describe_exception(error: Exception) -> str:
     """The error message plus the line of this script that raised it."""
 
     frames = [
-        frame for frame in traceback.extract_tb(error.__traceback__)
+        frame
+        for frame in traceback.extract_tb(error.__traceback__)
         if Path(frame.filename).resolve() == Path(__file__).resolve()
     ]
 
-    location = (
-        f" (at {Path(__file__).name}:{frames[-1].lineno} in {frames[-1].name})"
-        if frames else ""
-    )
+    location = f" (at {Path(__file__).name}:{frames[-1].lineno} in {frames[-1].name})" if frames else ""
 
     return f"{type(error).__name__}: {error}{location}"
 
@@ -559,7 +568,10 @@ def record_ingestion_error(
     )
 
     write_manifest_record(
-        run_id, source, file, None,
+        run_id,
+        source,
+        file,
+        None,
         status="INGESTION_ERROR",
         message=message,
     )
@@ -575,10 +587,7 @@ def record_ingestion_error(
 def discover_files() -> list[Path]:
 
     return sorted(
-        file
-        for file in INCOMING_DIR.rglob("*")
-        if file.is_file()
-        and file.suffix.lower() in SUPPORTED_EXTENSIONS
+        file for file in INCOMING_DIR.rglob("*") if file.is_file() and file.suffix.lower() in SUPPORTED_EXTENSIONS
     )
 
 
@@ -600,6 +609,7 @@ def run_ingestion() -> dict:
     registry_config = load_registry_config()
     source_registry = registry_config["sources"]
     ignored_patterns = registry_config.get("ignored_files") or []
+    withdrawn = registry_config.get("withdrawn_files") or []
 
     upgrade_manifest_header()
 
@@ -625,23 +635,22 @@ def run_ingestion() -> dict:
         "INGESTED": "ingested",
         "SKIPPED_DUPLICATE": "duplicates",
         "IGNORED": "ignored",
+        "WITHDRAWN": "ignored",
         "UNREGISTERED": "unregistered",
     }
 
     for file in files:
-
         try:
-
             outcome = process_file(
                 file,
                 run_id,
                 source_registry,
                 ignored_patterns,
                 ingested_hashes,
+                withdrawn,
             )
 
         except Exception as error:
-
             # Record the failure against this file and carry on with
             # the rest of the batch.
             outcome = record_ingestion_error(file, run_id, source_registry, error)
@@ -698,5 +707,4 @@ def run_ingestion() -> dict:
 
 
 if __name__ == "__main__":
-
     run_ingestion()

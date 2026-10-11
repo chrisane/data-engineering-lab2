@@ -4,6 +4,19 @@
 # One contract per source. Ingestion uses `format` and `path`.
 # Validation uses `structure`, `data_rules` and `business_rules`.
 #
+# Source keys
+#   format, path                File type and path pattern under data/incoming
+#   staging_table               SQL staging table (columns and types derive from
+#                               the rules below; see src/warehouse/staging_schema.py)
+#   extraction                  PDF only: label -> field mapping and value types
+#                               (src/validation/document_extraction.py)
+#   structure.sql_types         Explicit staging type for a column (override)
+#
+# Top-level keys
+#   withdrawn_files             Files formally withdrawn (refused at ingestion,
+#                               WITHDRAWN at the load gate; history kept)
+#   load_policy                 Statuses that may load, critical sources
+#
 # Rule reference
 #   structure.sheet             Worksheet that holds the data (xlsx)
 #   structure.required_columns  Columns that must exist in the header row
@@ -68,6 +81,20 @@ load_policy:
 ignored_files:
   - generation_validation.xlsx   # Synthetic data generator QA output
 
+# Files formally withdrawn from use. Matching files are refused at
+# ingestion and, if ingested earlier, marked WITHDRAWN by the load gate
+# so they are never loaded. History and RAW evidence are kept.
+withdrawn_files:
+  - pattern: cashups/S*_Cashup.pdf
+    reason: >-
+      Legacy cash-up documents from an earlier generator. Their site codes
+      (S001-S004) do not exist in site_master and their amounts are not
+      consistent with recorded sales, so they cannot be reconciled.
+      Replaced by generator-produced cash-ups using branch site codes.
+    withdrawn_on: 2026-10-10
+    approved_by: Head of Operations (Operations)
+    archived_to: data/archive/legacy_cashups/
+
 sources:
 
   # -------------------------------------------------------
@@ -77,6 +104,7 @@ sources:
   site_master:
     format: xlsx
     path: site_master.xlsx
+    staging_table: stg.Site
     governance:
       description: Head office, distribution centre and branch locations.
       data_owner: Head of Operations (Operations)
@@ -100,6 +128,7 @@ sources:
   department_master:
     format: xlsx
     path: department_master.xlsx
+    staging_table: stg.Department
     governance:
       description: Organisational departments.
       data_owner: Head of Human Resources (Human Resources)
@@ -121,6 +150,7 @@ sources:
   product_master:
     format: xlsx
     path: product_master.xlsx
+    staging_table: stg.Product
     governance:
       description: Products, categories, standard cost and selling price.
       data_owner: Procurement Manager (Procurement)
@@ -159,6 +189,7 @@ sources:
   supplier_master:
     format: xlsx
     path: supplier_master.xlsx
+    staging_table: stg.Supplier
     governance:
       description: Suppliers, minimum order values, rebate rates and payment terms.
       data_owner: Procurement Manager (Procurement)
@@ -201,6 +232,7 @@ sources:
   product_supplier:
     format: xlsx
     path: product_supplier.xlsx
+    staging_table: stg.ProductSupplier
     governance:
       description: Approved suppliers per product and their unit costs.
       data_owner: Procurement Manager (Procurement)
@@ -226,6 +258,7 @@ sources:
   customer_master:
     format: xlsx
     path: customer_master.xlsx
+    staging_table: stg.Customer
     governance:
       description: Retail and business customers with credit limits.
       data_owner: Head of Sales (Sales)
@@ -257,6 +290,7 @@ sources:
   purchase_orders:
     format: xlsx
     path: purchase_orders.xlsx
+    staging_table: stg.PurchaseOrder
     governance:
       description: Purchase order headers raised by the distribution centre.
       data_owner: Procurement Manager (Procurement)
@@ -297,6 +331,7 @@ sources:
   purchase_order_lines:
     format: xlsx
     path: purchase_order_lines.xlsx
+    staging_table: stg.PurchaseOrderLine
     governance:
       description: Products, quantities and costs per purchase order.
       data_owner: Procurement Manager (Procurement)
@@ -329,6 +364,7 @@ sources:
   goods_receipts:
     format: xlsx
     path: goods_receipts.xlsx
+    staging_table: stg.GoodsReceipt
     governance:
       description: Goods received against purchase orders.
       data_owner: Warehouse Manager (Warehousing)
@@ -353,6 +389,7 @@ sources:
   supplier_invoices:
     format: xlsx
     path: supplier_invoices.xlsx
+    staging_table: stg.SupplierInvoice
     governance:
       description: Accounts payable supplier invoices.
       data_owner: Financial Controller (Finance)
@@ -392,6 +429,7 @@ sources:
   supplier_rebates:
     format: xlsx
     path: supplier_rebates.xlsx
+    staging_table: stg.SupplierRebate
     governance:
       description: Quarterly supplier rebates earned on qualifying spend.
       data_owner: Financial Controller (Finance)
@@ -431,6 +469,7 @@ sources:
   sales_transactions:
     format: xlsx
     path: sales_transactions.xlsx
+    staging_table: stg.SalesTransaction
     governance:
       description: Branch sales headers with payment method and totals.
       data_owner: Head of Sales (Sales)
@@ -472,6 +511,7 @@ sources:
   sales_lines:
     format: xlsx
     path: sales_lines.xlsx
+    staging_table: stg.SalesLine
     governance:
       description: Products, quantities and prices per sale.
       data_owner: Head of Sales (Sales)
@@ -505,6 +545,7 @@ sources:
   inventory_movements:
     format: xlsx
     path: inventory_movements.xlsx
+    staging_table: stg.InventoryMovement
     governance:
       description: Stock receipts and sales movements per site and product.
       data_owner: Warehouse Manager (Warehousing)
@@ -540,6 +581,7 @@ sources:
   operating_expenses:
     format: xlsx
     path: operating_expenses.xlsx
+    staging_table: stg.OperatingExpense
     governance:
       description: Rent, utilities, connectivity and other operating costs per site.
       data_owner: Financial Controller (Finance)
@@ -566,6 +608,7 @@ sources:
   general_ledger:
     format: xlsx
     path: general_ledger.xlsx
+    staging_table: stg.GeneralLedger
     governance:
       description: General ledger journal lines derived from source transactions.
       data_owner: Chief Financial Officer (Finance)
@@ -580,6 +623,8 @@ sources:
       required_columns:
         [journal_id, posting_date, source_document_id, transaction_type, site_id, account_code, debit, credit]
       record_key: [journal_id, account_code]
+      sql_types:
+        account_code: NVARCHAR(20)
     data_rules:
       # business_rules.yaml -> finance.source_transaction_reference_required
       required_values:
@@ -614,6 +659,7 @@ sources:
   fixed_assets_erp:
     format: xlsx
     path: fixed_assets_erp.xlsx
+    staging_table: stg.FixedAsset
     governance:
       description: Capitalised assets with cost, depreciation and net book value.
       data_owner: Financial Controller (Finance)
@@ -667,6 +713,7 @@ sources:
   branch_local_assets:
     format: xlsx
     path: branch_local_assets.xlsx
+    staging_table: stg.BranchLocalAsset
     governance:
       description: Small assets below the capitalisation threshold, kept by branches.
       data_owner: Head of Operations (Operations)
@@ -699,6 +746,7 @@ sources:
   branch_cashup:
     format: pdf
     path: cashups/*.pdf
+    staging_table: stg.BranchCashup
     governance:
       description: End-of-shift branch cash-up reports.
       data_owner: Head of Operations (Operations)
@@ -711,7 +759,8 @@ sources:
       retention_years: 7
       update_frequency: Per shift
     structure:
-      filename_pattern: '^S\d{3}_SHIFT-\d{6}_\d{8}_Cashup\.pdf$'
+      filename_pattern: '^BR\d{3}_SHIFT-\d{6}_\d{8}_Cashup\.pdf$'
+      record_key: [shift_id]
       required_labels:
         - Shift ID
         - Site Code
@@ -729,4 +778,76 @@ sources:
         - Variance
         - Cashier Signature
         - Manager Approval
-    # Field extraction and value rules arrive with Phase 6 (PDF extraction).
+    extraction:
+      fields:
+        shift_id:              {label: Shift ID}
+        site_code:             {label: Site Code}
+        business_date:         {label: Business Date, type: date}
+        pos_terminal:          {label: POS Terminal}
+        cashier:               {label: Cashier}
+        opening_float:         {label: Opening Float, type: money}
+        cash_sales:            {label: Cash Sales, type: money}
+        card_sales:            {label: Card Sales, type: money}
+        account_sales:         {label: Account Sales, type: money}
+        total_sales:           {label: Total Sales, type: money}
+        internal_expenses:     {label: Internal Expenses, type: money}
+        cash_removed:          {label: Cash Removed, type: money}
+        expected_closing_cash: {label: Expected Closing Cash, type: money}
+        actual_closing_cash:   {label: Actual Closing Cash, type: money}
+        variance:              {label: Variance, type: money}
+        cashier_signature:     {label: Cashier Signature}
+        manager_approval:      {label: Manager Approval}
+      # Identifiers in the file name, checked against the document content.
+      filename_fields: '^(?P<file_site_code>[A-Z]+\d{3})_(?P<file_shift_id>SHIFT-\d{6})_\d{8}_Cashup\.pdf$'
+    data_rules:
+      required_values:
+        [shift_id, site_code, business_date, opening_float, cash_sales, card_sales,
+         account_sales, total_sales, cash_removed, expected_closing_cash,
+         actual_closing_cash, variance]
+      dates: [business_date]
+      patterns:
+        shift_id: '^SHIFT-\d{6}$'
+        site_code: '^BR\d{3}$'
+      numeric:
+        opening_float: {minimum: 0}
+        cash_sales: {minimum: 0}
+        card_sales: {minimum: 0}
+        account_sales: {minimum: 0}
+        total_sales: {minimum: 0}
+        internal_expenses: {minimum: 0}
+        cash_removed: {minimum: 0}
+        expected_closing_cash: {}
+        actual_closing_cash: {minimum: 0}
+        variance: {}
+      allowed_values:
+        manager_approval: [Approved]
+      references:
+        site_code: {source: site_master, field: site_id}
+    business_rules:
+      calculations:
+        - name: CASHUP_TOTAL_SALES
+          field: total_sales
+          formula: cash_sales + card_sales + account_sales
+          tolerance: 0.01
+          recommended_action: Recount takings by payment method and correct the cash-up.
+        - name: CASHUP_EXPECTED_CLOSING
+          field: expected_closing_cash
+          formula: opening_float + cash_sales - internal_expenses - cash_removed
+          tolerance: 0.01
+          recommended_action: Recalculate expected closing cash on the cash-up.
+        - name: CASHUP_VARIANCE
+          field: variance
+          formula: actual_closing_cash - expected_closing_cash
+          tolerance: 0.01
+          recommended_action: Recalculate the variance (actual minus expected closing cash).
+      comparisons:
+        - name: CASHUP_FILENAME_SITE
+          field: site_code
+          operator: "=="
+          other_field: file_site_code
+          recommended_action: Rename the file or correct the site code so they agree.
+        - name: CASHUP_FILENAME_SHIFT
+          field: shift_id
+          operator: "=="
+          other_field: file_shift_id
+          recommended_action: Rename the file or correct the shift ID so they agree.

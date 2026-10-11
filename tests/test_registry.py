@@ -7,7 +7,6 @@ import pytest
 
 from common import load_registry_config
 
-
 REQUIRED_GOVERNANCE_FIELDS = [
     "description",
     "data_owner",
@@ -29,11 +28,7 @@ def test_every_source_has_complete_governance(source):
 
     governance = SOURCES[source].get("governance") or {}
 
-    missing = [
-        field
-        for field in REQUIRED_GOVERNANCE_FIELDS
-        if governance.get(field) in (None, "")
-    ]
+    missing = [field for field in REQUIRED_GOVERNANCE_FIELDS if governance.get(field) in (None, "")]
 
     assert not missing, f"{source} is missing governance fields: {missing}"
 
@@ -60,17 +55,12 @@ def test_personal_data_is_declared_consistently(source):
     assert fields, f"{source} contains personal data but lists no fields"
 
     assert governance["classification"] in POLICY["personal_data_classifications"], (
-        f"{source} holds personal data, so it must be classified as one of "
-        f"{POLICY['personal_data_classifications']}"
+        f"{source} holds personal data, so it must be classified as one of {POLICY['personal_data_classifications']}"
     )
 
     # Every declared field must actually exist in the source contract.
     structure = config.get("structure") or {}
-    known_fields = (
-        structure.get("required_columns")
-        or structure.get("required_labels")
-        or []
-    )
+    known_fields = structure.get("required_columns") or structure.get("required_labels") or []
 
     unknown = [field for field in fields if field not in known_fields]
 

@@ -1,0 +1,185 @@
+# =========================================================
+# DATA DICTIONARY - business definitions of source columns
+# ---------------------------------------------------------
+# Synchronised into meta.DataElement (with type, nullability,
+# classification and validation rules derived from the source registry).
+# A definition under a source overrides the common definition.
+# The tests fail if any staged column has no definition.
+# =========================================================
+
+common:
+  site_id: Code of the Nawa Retail Group site (head office HO###, distribution centre DC###, branch BR###).
+  department_id: Code of the organisational department (D###).
+  product_id: Code of the product (P#####), unique across the group.
+  supplier_id: Code of the supplier (SUP####).
+  customer_id: Code of the customer (CUST#####).
+  po_id: Purchase order number (PO######).
+  sale_id: Sales transaction number (S########).
+  quantity: Number of units.
+  unit_cost: Cost price per unit in NAD, excluding VAT.
+  net_amount: Amount in NAD excluding VAT.
+  vat_amount: Value-added tax in NAD at the company VAT rate (15%).
+  total_amount: Amount in NAD including VAT (net + VAT).
+  status: Lifecycle status of the record in the source system.
+  description: Free-text description entered in the source system.
+  town: Namibian town where the party or site is located.
+
+domains:
+  site_master: Organisation
+  department_master: Organisation
+  product_master: Merchandise
+  supplier_master: Procurement
+  product_supplier: Procurement
+  customer_master: Sales
+  purchase_orders: Procurement
+  purchase_order_lines: Procurement
+  goods_receipts: Procurement
+  supplier_invoices: Finance
+  supplier_rebates: Procurement
+  sales_transactions: Sales
+  sales_lines: Sales
+  inventory_movements: Inventory
+  operating_expenses: Finance
+  general_ledger: Finance
+  fixed_assets_erp: Assets
+  branch_local_assets: Assets
+  branch_cashup: Cash Management
+
+sources:
+
+  site_master:
+    site_name: Trading name of the site.
+    site_type: "Role of the site: HEAD_OFFICE, DISTRIBUTION_CENTRE or BRANCH."
+
+  department_master:
+    department_name: Name of the department (for example Finance, Procurement).
+
+  product_master:
+    product_name: Name of the product as sold.
+    category: Merchandise category; determines whether the DC stocks it.
+    standard_cost: Standard cost price per unit in NAD, used to value stock and cost sales.
+    selling_price: Standard selling price per unit in NAD, excluding VAT.
+    dc_stocked: True when the product is held at the central distribution centre and replenished to branches; false when bought directly from suppliers.
+
+  supplier_master:
+    supplier_name: Registered name of the supplier.
+    location: Town or city of the supplier.
+    minimum_order_value_nad: Smallest purchase-order value (NAD, excl. VAT) the supplier accepts; orders below it are invalid.
+    rebate_rate: Contractual base rebate rate as a fraction (0.02 = 2%).
+    payment_terms_days: Days after the invoice date by which the supplier must be paid.
+
+  product_supplier:
+    supplier_unit_cost: Price per unit agreed with this supplier for this product (NAD, excl. VAT).
+
+  customer_master:
+    customer_name: "Name of the customer. RESTRICTED: a private individual for retail customers."
+    customer_type: RETAIL (individual) or BUSINESS (account customer).
+    credit_limit: Maximum outstanding account balance allowed (NAD); 0 = no credit facility.
+
+  purchase_orders:
+    po_date: Date the purchase order was raised.
+    delivery_site_id: Site to which the goods are delivered (normally the distribution centre).
+    po_value: Total order value in NAD excluding VAT (sum of its lines).
+
+  purchase_order_lines:
+    quantity: Units ordered.
+    line_value: Line value in NAD excluding VAT (quantity x unit cost).
+
+  goods_receipts:
+    grn_id: Goods received note number (GRN######).
+    receipt_date: Date the goods were received at the site.
+    site_id: Site that received the goods.
+
+  supplier_invoices:
+    invoice_id: Supplier invoice number (INV######).
+    invoice_date: Date of the supplier invoice.
+    status: Payment status of the invoice (OPEN, PAID, PARTIALLY_PAID, CANCELLED).
+
+  supplier_rebates:
+    period: Rebate period as calendar quarter (YYYY-Qn).
+    qualifying_spend: Purchases from the supplier in the period that count towards rebate thresholds (NAD).
+    rebate_rate: Rebate rate earned for the period (from the quarterly thresholds).
+    rebate_amount: Rebate earned for the period in NAD (qualifying spend x rate).
+
+  sales_transactions:
+    sale_date: Business date of the sale.
+    site_id: Branch where the sale took place.
+    payment_method: "How the customer paid: CASH, CARD or CREDIT (on account)."
+
+  sales_lines:
+    quantity: Units sold.
+    unit_price: Selling price per unit charged, excluding VAT (NAD).
+    line_net: Line amount excluding VAT (quantity x unit price).
+    unit_cost: Cost per unit at the time of sale (NAD), used for cost of sales.
+
+  inventory_movements:
+    movement_id: Unique stock movement number (MOV########).
+    movement_date: Date of the stock movement.
+    site_id: Site whose stock changed.
+    movement_type: "Reason for the movement: PURCHASE_RECEIPT, SALE, TRANSFER_IN, TRANSFER_OUT, ADJUSTMENT (including opening stock), WRITE_OFF, RETURN."
+    quantity: Signed number of units (positive into the site, negative out of it).
+    source_document_id: Document that caused the movement (purchase order, sale, transfer or adjustment reference).
+
+  operating_expenses:
+    expense_id: Expense record number (EXP######).
+    expense_date: Date the expense was incurred.
+    expense_type: Expense category (RENT, UTILITY, CONNECTIVITY, FUEL, SECURITY, MAINTENANCE); maps to a GL account via the posting rules.
+    amount: Expense amount in NAD.
+
+  general_ledger:
+    journal_id: Journal number; all lines of a journal must balance.
+    posting_date: Date the journal was posted to the ledger.
+    source_document_id: Operational document that produced the journal (lineage to sales, invoices, expenses, assets).
+    transaction_type: Posting rule applied (see config/posting_rules.csv).
+    site_id: Site to which the posting is attributed.
+    account_code: General ledger account (see config/chart_of_accounts.csv).
+    debit: Debit amount in NAD (blank or 0 for a credit line).
+    credit: Credit amount in NAD (blank or 0 for a debit line).
+
+  fixed_assets_erp:
+    asset_id: Unique ERP asset number (AST######).
+    site_id: Site where the asset is located.
+    asset_class: Capital asset class; determines useful life.
+    acquisition_date: Date the asset was acquired.
+    acquisition_cost: Capitalised cost in NAD (at least the capitalisation threshold).
+    useful_life_years: Useful life in years for straight-line depreciation.
+    monthly_depreciation: Straight-line depreciation per month (cost / (life x 12)).
+    accumulated_depreciation: Depreciation to date as reported by the ERP register.
+    net_book_value: Cost less accumulated depreciation as reported by the ERP register.
+    status: Asset status (ACTIVE, DISPOSED, WRITTEN_OFF).
+
+  branch_local_assets:
+    local_asset_id: Branch register number of the small asset (LCL######).
+    site_id: Branch holding the asset.
+    department_id: Department responsible for the asset.
+    description: Type of item (for example Chair, Monitor, CCTV Camera).
+    condition: Physical condition (Good, Fair, Needs Repair).
+    assigned_to: "Employee the asset is assigned to. CONFIDENTIAL: personal data."
+    recorded_date: Date the asset was recorded in the branch register.
+
+  branch_cashup:
+    shift_id: Cash-up shift number (SHIFT-######); one document per shift.
+    site_code: Branch that performed the cash-up.
+    business_date: Trading day the cash-up covers.
+    pos_terminal: Point-of-sale terminal counted.
+    cashier: "Cashier who performed the count. CONFIDENTIAL: employee name."
+    opening_float: Cash in the drawer at the start of the shift (NAD).
+    cash_sales: Cash takings declared on the cash-up (NAD, incl. VAT).
+    card_sales: Card takings declared on the cash-up (NAD, incl. VAT).
+    account_sales: Sales on account declared on the cash-up (NAD, incl. VAT).
+    total_sales: Total takings declared (cash + card + account).
+    internal_expenses: Petty-cash expenses paid from the drawer (NAD).
+    cash_removed: Cash banked or moved to the safe during the shift (NAD).
+    expected_closing_cash: Cash that should remain (float + cash sales - expenses - cash removed).
+    actual_closing_cash: Cash counted at close (NAD).
+    variance: Actual minus expected closing cash; negative = shortage, positive = overage.
+    cashier_signature: "Cashier sign-off on the document. CONFIDENTIAL."
+    manager_approval: Manager approval status of the cash-up.
+
+reference:
+  chart_of_accounts:
+    account_code: General ledger account code.
+    account_name: Name of the account.
+    account_type: Asset, Contra Asset, Liability, Equity, Revenue, Contra Revenue or Expense.
+    financial_statement: Balance Sheet or Income Statement.
+    normal_balance: Side on which the account normally carries its balance (Debit or Credit).
