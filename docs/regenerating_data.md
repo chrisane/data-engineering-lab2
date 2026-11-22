@@ -68,10 +68,16 @@ Get-ChildItem logs\* -Exclude .gitkeep | Remove-Item -Recurse -Force
 Check that only the kept files remain:
 
 ```powershell
-Get-ChildItem data, logs -Recurse -File
+Get-ChildItem data, logs -Recurse | Select-Object -ExpandProperty FullName
 ```
 
-This should list only the `.gitkeep` files.
+This should list only the `data` subfolders (`archive`, `incoming`, `processed`, `quarantine`, `raw`)
+and the `.gitkeep` files. If empty `ING-*` run folders remain under `data\raw` or `data\quarantine`,
+remove them:
+
+```powershell
+Get-ChildItem data\raw, data\quarantine -Directory -Filter 'ING-*' | Remove-Item -Recurse -Force
+```
 
 ## Step 3: drop the database
 
