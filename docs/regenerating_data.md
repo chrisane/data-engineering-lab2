@@ -94,24 +94,43 @@ connections**, OK.
 
 ## Step 4: rebuild the empty database
 
+Run these commands one at a time, in order, in the same PowerShell terminal. Wait for each to finish
+before starting the next; if one shows an error, stop and fix it first, because each depends on the
+one before. The `# ...` comments can be pasted too: PowerShell ignores everything after `#`.
+
 ```powershell
+.\.venv\Scripts\Activate.ps1           # turns on the virtual environment: the prompt starts with (.venv)
 python scripts/migrate.py apply        # creates the database and applies every migration in sql/
 python scripts/sync_metadata.py        # loads config/ into the meta catalogue
 python scripts/migrate.py status       # every migration should show as applied
 ```
 
+| Command | What you should see |
+|---|---|
+| `Activate.ps1` | `(.venv)` at the start of the prompt. If PowerShell says *running scripts is disabled*, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once and try again. |
+| `migrate.py apply` | Each migration applied in turn, ending with all of them applied. |
+| `sync_metadata.py` | A summary line, for example `21 sources, 131 data elements, 44 mappings, ...`. |
+| `migrate.py status` | Every migration listed as applied. This command only checks; it changes nothing. |
+
 The schema is now identical to before, with no data except the seeded reference rows (Unknown `-1`
 members, payment methods and so on).
 
+The pipeline in step 5 also runs the migrations and the metadata sync (its "database migrations" and
+"metadata sync" stages), where they report nothing to do. Running them yourself first shows a wrong
+connection or configuration straight away, instead of halfway through the pipeline.
+
 ## Step 5: generate the data and run the pipeline
 
+In the same terminal:
+
 ```powershell
-.\run_pipeline.bat --regenerate
+.\run_pipeline.bat --regenerate        # generates new data and runs the full pipeline
 ```
 
-This opens the status board in its own window, generates the data without asking, then ingests,
-validates, runs the tests, loads the warehouse and runs the health check. To stay in the current
-terminal instead: `python scripts/run_pipeline.py --regenerate`.
+This opens the status board in a **separate window**, generates the data without asking, then ingests,
+validates, runs the tests, loads the warehouse and runs the health check. The window stays open when
+the run finishes so you can read the result. To stay in the current terminal instead:
+`python scripts/run_pipeline.py --regenerate`.
 
 At the end of the data generation stage the generator prints its self-check. Expect:
 
