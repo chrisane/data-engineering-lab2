@@ -48,8 +48,9 @@ from common import (
 )
 from document_extraction import (
     TemplateError,
+    candidate_labels,
+    document_values,
     field_labels,
-    label_values,
     resolve_template,
     template_versions,
 )
@@ -558,7 +559,7 @@ def validate_pdf_document(
             )
         )
 
-    found_labels = label_values(text)
+    found_labels = document_values(file, candidate_labels(extraction, structure.get("required_labels") or []))
     version = None
 
     if template_versions(extraction):
@@ -602,7 +603,7 @@ def validate_pdf_document(
         )
 
     for field, label in required_label_fields(structure, extraction, version):
-        found = label is not None and (label in found_labels or f"{label}:" in text)
+        found = label is not None and label in found_labels
         template_note = f" (template {version})" if version else ""
 
         results.append(
@@ -616,7 +617,7 @@ def validate_pdf_document(
                 status="PASS" if found else "FAIL",
                 severity=None if found else "ERROR",
                 actual=None if found else "LABEL_NOT_FOUND",
-                expected=f"{label}:" if label else "A label for this field",
+                expected=label or "A label for this field",
                 message=(
                     f"Label '{label}' found{template_note}."
                     if found

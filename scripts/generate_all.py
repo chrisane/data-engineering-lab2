@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from faker import Faker
 
+from cashup_report import write_cashup_pdf
+
 SEED = 20261004
 random.seed(SEED)
 np.random.seed(SEED)
@@ -379,45 +381,10 @@ CASHUP_VARIANCE={("BR003","2026-09-22"):-150.00,         # cash shortage
                  ("BR007","2026-09-25"):40.00}           # cash overage
 CASHUP_MISREPORTED={("BR010","2026-09-26"):-500.00}      # cash sales misreported (over-reported if under-reporting would go below zero)
 CASHUP_UNREADABLE={("BR012","2026-09-27")}               # amount not machine-readable
-# Template rollout: BR001-BR008 move to cash-up template 2 from 2026-09-24;
-# BR009-BR012 stay on template 1, so both layouts arrive side by side.
-# Template 2 adds a version label, renames lines and reorders them
-# (registry extraction.templates). Values are unchanged.
-CASHUP_V2_FROM=pd.Timestamp("2026-09-24")
-CASHUP_V2_BRANCHES={f"BR{n:03d}" for n in range(1,9)}
-CASHUP_V2_LABELS={"Site Code":"Branch Code","POS Terminal":"Till Number","Cash Sales":"Cash Takings",
-                  "Card Sales":"Card Takings","Account Sales":"Account Takings","Total Sales":"Total Takings",
-                  "Cash Removed":"Cash Banked"}
-CASHUP_V2_ORDER=["Shift ID","Site Code","Business Date","Total Sales","Cash Sales","Card Sales","Account Sales",
-                 "POS Terminal","Cashier","Opening Float","Internal Expenses","Cash Removed",
-                 "Expected Closing Cash","Actual Closing Cash","Variance","Cashier Signature","Manager Approval"]
-
-def cashup_template_2(fields):
-    """Same values on the template 2 layout (labels and order)."""
-    values=dict(fields)
-    return [("Template Version","2")]+[(CASHUP_V2_LABELS.get(label,label),values[label]) for label in CASHUP_V2_ORDER]
+# Each cash-up is filled in on the Excel template and exported to PDF
+# (docs/templates/branch_cashup_template.xlsx; layout in cashup_report.py).
 cashup_rng=random.Random(SEED+1)
 cashiers=Faker("en_US"); cashiers.seed_instance(SEED+1)
-
-def nad(amount, style):
-    """Format money the way branch staff type it (deliberately inconsistent)."""
-    if style=="space":   return "N$ "+f"{amount:,.2f}".replace(","," ")
-    if style=="plain":   return f"N$ {amount:.2f}"
-    return f"N$ {amount:,.2f}"
-
-def write_cashup_pdf(path, fields):
-    from reportlab.lib.pagesizes import A4
-    from reportlab.pdfgen import canvas
-    # invariant=1 fixes the embedded timestamps, so regenerating an
-    # unchanged document produces identical bytes (and the same hash).
-    pdf=canvas.Canvas(str(path),pagesize=A4,invariant=1); pdf.setTitle("Branch Cash-Up Report")
-    y=800; pdf.setFont("Helvetica-Bold",14); pdf.drawString(60,y,"BRANCH CASH-UP REPORT"); y-=30
-    pdf.setFont("Helvetica",11)
-    for label,value in fields:
-        pdf.drawString(60,y,f"{label}:"); y-=16
-        pdf.drawString(60,y,str(value)); y-=20
-    pdf.setFont("Helvetica-Oblique",8); pdf.drawString(60,40,"Synthetic training document - not real business data")
-    pdf.save()
 
 cashup_dir=STAGING/"cashups"; cashup_dir.mkdir()
 sales_by_day=(sales_df.assign(sale_date=pd.to_datetime(sales_df.sale_date))
@@ -442,21 +409,16 @@ for offset in range(CASHUP_DAYS):
         actual=money(expected+CASHUP_VARIANCE.get(key,0.0))
         if key in CASHUP_MISSING:
             continue
-        style=cashup_rng.choice(["comma","comma","space","plain"])
-        fields=[("Shift ID",f"SHIFT-{shift_no:06d}"),("Site Code",branch),
-                ("Business Date",day.strftime("%Y-%m-%d")),("POS Terminal",f"POS-{branch}-01"),
-                ("Cashier",cashiers.name()),("Opening Float",nad(opening_float,style)),
-                ("Cash Sales",nad(reported_cash,style)),("Card Sales",nad(card,style)),
-                ("Account Sales",nad(account,style)),("Total Sales",nad(money(reported_cash+card+account),style)),
-                ("Internal Expenses",nad(expenses,style)),("Cash Removed",nad(removed,style)),
-                ("Expected Closing Cash",nad(expected,style)),("Actual Closing Cash",nad(actual,style)),
-                ("Variance",nad(money(actual-expected),style)),("Cashier Signature","Signed"),
-                ("Manager Approval","Approved")]
+        report={"Site Code":branch,"Shift Id":f"SHIFT-{shift_no:06d}","Date":day.date(),
+                "POS Terminal":f"POS-{branch}-01","Cashier Name":cashiers.name(),
+                "Opening Float":opening_float,"Cash Sales":reported_cash,"Card Sales":card,
+                "Account Sales":account,"Total Sales":money(reported_cash+card+account),
+                "Internal Expenses":expenses,"Cash Removed":removed,"Expected Closing Cash":expected,
+                "Actual Closing Cash":actual,"Variance":money(actual-expected),
+                "Cashier Signature":"Signed","Manager Signature":"Approved"}
         if key in CASHUP_UNREADABLE:
-            fields=[(label,"N$ 1,2O4.5O" if label=="Card Sales" else value) for label,value in fields]
-        if branch in CASHUP_V2_BRANCHES and day>=CASHUP_V2_FROM:
-            fields=cashup_template_2(fields)
-        write_cashup_pdf(cashup_dir/f"{branch}_SHIFT-{shift_no:06d}_{day:%Y%m%d}_Cashup.pdf",fields)
+            report["Card Sales"]="1,2O4.5O"     # typed over the number format, letter O for zero
+        write_cashup_pdf(cashup_dir/f"{branch}_SHIFT-{shift_no:06d}_{day:%Y%m%d}_Cashup.pdf",report)
         cashup_count+=1
 checks["cashup_documents"]=cashup_count
 pd.DataFrame([checks]).to_excel(STAGING/"generation_validation.xlsx",index=False)

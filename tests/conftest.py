@@ -8,3 +8,5 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src" / "ingestion"))
 sys.path.insert(0, str(PROJECT_ROOT / "src" / "validation"))
 sys.path.insert(0, str(PROJECT_ROOT / "src" / "warehouse"))
+# Report renderer shared by the data generator and the cash-up tests.
+sys.path.insert(0, str(PROJECT_ROOT / "scripts"))

@@ -14,6 +14,17 @@ ingested as a new, unchanged version).
 | Branch cash-up PDFs generated from the sales data (one per branch per day, 21-27 Sept 2026) | The previous 111 PDFs used site codes S001-S004 (not in `site_master`) and amounts ~30x the sales; they could not be reconciled. They were **withdrawn** (registry `withdrawn_files`) and archived to `data/archive/legacy_cashups/`. The archive and withdrawal entry were removed on 2026-11-22 when the repository was reset to a clean baseline (see [regenerating_data.md](regenerating_data.md)). |
 | Generator self-check `negative_stock_positions` and `cashup_documents` | Proves the inventory and document generation. |
 
+## Cash-up layout (2026-11-22)
+
+Cash-ups are drawn in the layout of the branches' Excel template
+([templates/branch_cashup_template.xlsx](templates/branch_cashup_template.xlsx)) as Excel exports it to
+PDF: site, shift, date, terminal and cashier as label-value rows; takings and the cash count as two
+tables (two headers wrap over two lines); signatures. Numbers use Excel's accounting format (a dash for
+zero, the minus sign at the left of the cell) and the date is day first (`21/09/2026`). The renderer is
+`scripts/cashup_report.py`; the extraction reads values by position, so the generated documents and a
+real Excel export read identically (proved by `tests/test_cashup_layout.py` against PDFs exported by
+Excel). This layout is template 3; templates 1 (label lines) and 2 (relabelled lines) were retired.
+
 Generation writes every file to a staging folder first and moves them into place when all are
 complete, so a cancelled run never leaves half-written files.
 
@@ -25,9 +36,8 @@ complete, so a cancelled run never leaves half-written files.
 | Cash shortage N$150 | BR003, 2026-09-22 | `CashVarianceStatus = SHORTAGE` -> `CASH_SHORTAGE`; anomaly in `audit.DataAnomaly` (`CASH_VARIANCE_ANOMALY`) |
 | Cash overage N$40 | BR007, 2026-09-25 | `CASH_OVERAGE`; anomaly in `audit.DataAnomaly` |
 | Cash sales misreported by N$500 | BR010, 2026-09-26 (over-reported because the branch had no cash sales that day) | Cash-up vs POS -> `POS_MISMATCH` |
-| Unreadable amount (`N$ 1,2O4.5O`, letter O) | BR012, 2026-09-27 | Data validation `DATA_TYPE` -> quarantined, `CASHUP_QUARANTINED`; also reported by `EXPECTED_RECORDS` |
-| Inconsistent number formats (`N$ 31 475.00`, `N$ 6903.40`, `N$ 22,910.00`) | Random cash-ups | Parsed correctly by the extraction (no false failures) |
-| Two cash-up templates at once: BR001-BR008 switch to template 2 (version label, renamed and reordered lines) from 2026-09-24; BR009-BR012 stay on template 1 | 31 template 2 documents, 52 template 1 | Both accepted; identical canonical fields; `silver.BranchCashup.template_version` records the layout (BR007's overage is on template 2) |
+| Unreadable amount (`1,2O4.5O` typed over the number format, letter O) | BR012, 2026-09-27 | Data validation `DATA_TYPE` -> quarantined, `CASHUP_QUARANTINED`; also reported by `EXPECTED_RECORDS` |
+| Accounting formats: zero printed as `-`, negative variance printed as `-   150.00` | Every cash-up with no account sales; BR003's shortage | Parsed correctly by the extraction (no false failures) |
 
 ## Findings the platform surfaced in the generated ledger (not deliberately planted)
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from document_extraction import label_values, parse_money
+from document_extraction import Fragment, layout_values, parse_date, parse_money
 from migrations import MigrationError, discover, retarget, split_batches
 from orchestrator import RunContext, eligibility_block
 from reconciliation import ControlConfigurationError, quote_table, within_tolerance
@@ -28,6 +28,9 @@ from staging_schema import sql_type, staging_table
         ("N$ 22,910.00", 22910.00),
         ("N$ -150.00", -150.00),
         ("N$ 0.00", 0.0),
+        ("7,394.94", 7394.94),
+        ("-", 0.0),
+        ("- 150.00", -150.00),
     ],
 )
 def test_money_formats_used_by_branches_parse(raw, expected):
@@ -40,11 +43,35 @@ def test_unreadable_amount_is_returned_as_text_so_validation_reports_it():
     assert parse_money("N$ 1,2O4.5O") == "N$ 1,2O4.5O"
 
 
-def test_labels_on_the_same_or_next_line():
+def test_day_first_dates_parse_when_the_source_declares_them():
 
-    text = "BRANCH CASH-UP REPORT\nShift ID:\nSHIFT-000001\nSite Code: BR001\nVariance:\nN$ 0.00"
+    assert parse_date("21/09/2026", ["%d/%m/%Y"]) == date(2026, 9, 21)
+    assert parse_date("2026-09-21") == date(2026, 9, 21)
+    assert parse_date("21/09/2026") == "21/09/2026"  # not declared: left for validation to report
 
-    assert label_values(text) == {"Shift ID": "SHIFT-000001", "Site Code": "BR001", "Variance": "N$ 0.00"}
+
+def test_values_are_found_right_of_labels_and_below_table_headers():
+
+    fragments = [
+        Fragment(0, 52.8, 689.5, "Site Code"),
+        Fragment(0, 148.2, 689.5, "BR001"),
+        # Table: one header wraps over two lines; the variance sign is printed apart from the number.
+        Fragment(0, 148.2, 521.8, "Cash Removed"),
+        Fragment(0, 246.7, 537.4, "Expected"),
+        Fragment(0, 246.7, 522.2, "Closing Cash"),
+        Fragment(0, 323.1, 521.8, "Variance"),
+        Fragment(0, 200.0, 506.6, "7,200.00"),
+        Fragment(0, 290.0, 506.6, "824.94"),
+        Fragment(0, 380.0, 506.6, "150.00"),
+        Fragment(0, 323.1, 506.6, "-"),
+    ]
+
+    assert layout_values(fragments, ["Site Code", "Cash Removed", "Expected Closing Cash", "Variance", "Absent"]) == {
+        "Site Code": "BR001",
+        "Cash Removed": "7,200.00",
+        "Expected Closing Cash": "824.94",
+        "Variance": "- 150.00",
+    }
 
 
 # ---------------------------------------------------------

@@ -114,13 +114,22 @@ automatically; RAW retention follows each source's `retention_years` and is a ma
 
 ## Changing a document template (cash-ups)
 
-Branch cash-up PDFs are read by **label**, and several layouts can be accepted at the same time, so
-branches can move to a new template on different days. The layouts are registered in
-`config/source_registry.yaml` under `branch_cashup.extraction.templates`.
+Branches fill in the Excel template ([templates/branch_cashup_template.xlsx](templates/branch_cashup_template.xlsx)),
+export it to PDF and email it; the automation saves the attachment in `data/incoming/cashups` as
+`<SiteCode>_<ShiftID>_<YYYYMMDD>_Cashup.pdf`, and the next pipeline run picks it up. Values are read by
+**label and position**: to the right of a label in the header block, below a label in the two tables
+(wrapped headers are joined). Several layouts can be accepted at the same time, so branches can move to a
+new template on different days. The layouts are registered in `config/source_registry.yaml` under
+`branch_cashup.extraction.templates`; the current one is template 3 (the Excel layout, no version label).
+
+In the template, Expected Closing Cash and Variance are formulas (Opening Float + Cash Sales - Internal
+Expenses - Cash Removed; Actual - Expected) and Actual Closing Cash is the counted amount, typed in. These
+are the rules validation applies (`CASHUP_EXPECTED_CLOSING`, `CASHUP_VARIANCE`): a calculated "actual"
+would hide every real shortage.
 
 | Situation | What the platform does | What to do |
 |---|---|---|
-| Fields moved or restyled, same labels | Nothing changes | Nothing |
+| Cells moved or restyled, same labels | Nothing changes, as long as each value stays to the right of its label or below its table header | Nothing |
 | New template being rolled out | Documents with an unregistered `Template Version` are **blocked** (`TEMPLATE_VERSION`, "version 'N' is not registered") | Add the version under `templates.versions` with only the labels it changes (`labels: {cash_sales: Cash Takings}`), get the data owner's approval, commit, run `python scripts/sync_metadata.py`, then re-run. Blocked documents pass on the next run |
 | A template has no version label | It is read as the `default: true` template | Only the original template should be the default |
 | A new template drops a field | The field is NULL for that template if listed in `not_captured`; if it is a required label, the check fails and names the field and template | Decide with the data owner whether the field is still required |
