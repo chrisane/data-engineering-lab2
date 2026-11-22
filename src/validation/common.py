@@ -135,11 +135,6 @@ def load_source_registry() -> dict:
     return load_registry_config()["sources"]
 
 
-def load_settings() -> dict:
-
-    return load_registry_config().get("settings") or {}
-
-
 # ---------------------------------------------------------
 # MANIFEST
 # ---------------------------------------------------------

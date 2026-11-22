@@ -248,7 +248,7 @@ data-engineering-lab2/
 | OpenPyXL | Excel file processing |
 | PyYAML | Source contracts and configurable rules |
 | SQL | Staging, transformation and warehouse queries |
-| SQLAlchemy / PyODBC | Database integration |
+| PyODBC | Database integration |
 | PyArrow / Parquet | Efficient analytical data storage |
 | Pytest | Automated testing |
 | Git | Version control |

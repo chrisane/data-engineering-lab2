@@ -27,7 +27,7 @@ SQL_DRIVER=ODBC Driver 17 for SQL Server
 # SQL_PASSWORD=
 ```
 
-Check the connection: `python test_sql_connection.py`.
+Check the connection: `python scripts/migrate.py status` (lists the migrations, or reports why it cannot connect).
 
 ## 2. Database
 
