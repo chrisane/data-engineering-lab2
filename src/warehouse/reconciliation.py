@@ -28,9 +28,13 @@ sys.path.insert(0, str(ROOT / "src" / "validation"))
 from common import read_manifest  # noqa: E402
 from db_connection import get_connection  # noqa: E402
 from staging_loader import sha256_file  # noqa: E402
+from staging_schema import LINEAGE_COLUMNS, staging_table  # noqa: E402
 
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 NO_HASH = "0" * 64
+
+# Technical columns every staging table has in addition to its contract.
+STAGING_TECHNICAL_COLUMNS = {"StagingID", "LoadedAt"}
 
 
 @dataclass
@@ -575,6 +579,393 @@ def control_supplier(cursor, control, context) -> tuple:
     return "PASS", 0, 0, f"All {len(checks)} supplier reconciliation checks passed.", None
 
 
+# ---------------------------------------------------------
+# DATA-QUALITY DIMENSION CONTROLS
+# ---------------------------------------------------------
+
+
+def database_columns(cursor, qualified: str) -> dict[str, tuple[str, bool]]:
+    """Column name -> (SQL type as written in DDL, nullable) for a table."""
+
+    schema, table = qualified.split(".")
+    cursor.execute(
+        "SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE "
+        "FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?",
+        schema,
+        table,
+    )
+    columns = {}
+
+    for name, data_type, length, precision, scale, nullable in cursor.fetchall():
+        data_type = data_type.upper()
+        if data_type in ("CHAR", "VARCHAR", "NCHAR", "NVARCHAR"):
+            data_type = f"{data_type}({'MAX' if length == -1 else length})"
+        elif data_type in ("DECIMAL", "NUMERIC"):
+            data_type = f"DECIMAL({precision},{scale})"
+        columns[name] = (data_type, nullable == "YES")
+
+    return columns
+
+
+def normalised_type(sql_type: str) -> str:
+
+    return sql_type.replace(" ", "").upper()
+
+
+def declared_columns(context) -> tuple[dict[str, tuple[str | None, bool | None]], bool]:
+    """
+    Columns the target must have: name -> (type, nullable), None where not
+    declared. The flag says whether the declaration is complete (registered
+    silver tables: no other columns allowed).
+    """
+
+    mapping = context.mapping
+    source = mapping["source"]
+
+    if mapping["layer"] == "SILVER":
+        if source in context.registry["sources"]:
+            definition = staging_table(source, context.registry["sources"][source])
+            declared = {c.name: (c.sql_type, c.nullable) for c in definition.columns}
+        else:
+            reference = context.pipeline_config["reference_sources"][source]
+            with open(ROOT / reference["path"], encoding="utf-8-sig") as file:
+                header = file.readline().strip().split(",")
+            declared = {name: (None, None) for name in header}
+
+        declared |= {name: (sql_type, nullable) for name, sql_type, nullable in LINEAGE_COLUMNS}
+
+        return declared, source in context.registry["sources"]
+
+    configured = next(m for m in context.pipeline_config["mappings"] if m["code"] == mapping["code"])
+
+    return {name: (None, None) for name in configured.get("columns") or {}}, False
+
+
+def control_schema(cursor, control, context) -> tuple:
+    """The target has every declared column; registered silver tables also match the contract exactly."""
+
+    target = context.mapping["target"]
+    quote_table(cursor, target)
+    actual = database_columns(cursor, target)
+    declared, exact = declared_columns(context)
+    problems = []
+
+    for name, (sql_type, nullable) in declared.items():
+        if name not in actual:
+            problems.append(f"missing column {name}")
+            continue
+        actual_type, actual_nullable = actual[name]
+        if sql_type and normalised_type(sql_type) != actual_type:
+            problems.append(f"{name} is {actual_type}, contract says {normalised_type(sql_type)}")
+        if nullable is not None and nullable != actual_nullable:
+            problems.append(f"{name} is {'NULL' if actual_nullable else 'NOT NULL'} in the table")
+
+    if exact:
+        unexpected = set(actual) - set(declared) - STAGING_TECHNICAL_COLUMNS
+        problems += [f"unexpected column {name}" for name in sorted(unexpected)]
+
+    if problems:
+        return (
+            "FAIL",
+            len(problems),
+            0,
+            f"{target} does not match its {'contract' if exact else 'declared lineage'}: {'; '.join(problems[:8])}",
+            "Schema drift: align the table with the contract through a new migration, or correct the contract.",
+        )
+
+    detail = f"{target} has all {len(declared)} declared column(s){' with matching types' if exact else ''}."
+
+    return "PASS", 0, 0, detail, None
+
+
+def control_volume(cursor, control, context) -> tuple:
+    """Rows selected for loading in this run vs the median of recent runs."""
+
+    params = control["params"]
+    history_runs = int(params.get("history_runs", 5))
+    min_ratio, max_ratio = float(params.get("min_ratio", 0.5)), float(params.get("max_ratio", 2.0))
+    source = context.mapping["source"]
+
+    cursor.execute(
+        "SELECT PipelineExecutionID, SUM(ISNULL(ValidatedRowCount, 0)) FROM audit.PipelineSourceBatch "
+        "WHERE SourceName = ? AND Decision = 'ELIGIBLE' AND PipelineExecutionID <= ? "
+        "GROUP BY PipelineExecutionID ORDER BY PipelineExecutionID DESC",
+        source,
+        context.pipeline_id,
+    )
+    runs = {execution: int(rows) for execution, rows in cursor.fetchall()}
+    current = runs.pop(context.pipeline_id, 0)
+    history = list(runs.values())[:history_runs]
+
+    if not history:
+        return "PASS", current, None, f"{current} row(s) selected; first run for {source}, baseline established.", None
+
+    ordered = sorted(history)
+    middle = len(ordered) // 2
+    median = ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
+    ratio = current / median if median else (1.0 if current == 0 else float("inf"))
+    summary = f"{current} row(s) selected vs median {median:g} of the last {len(history)} run(s) (ratio {ratio:.2f})"
+
+    if min_ratio <= ratio <= max_ratio:
+        return "PASS", current, int(median), f"{summary}; expected {min_ratio}-{max_ratio}.", None
+
+    return (
+        "FAIL",
+        current,
+        int(median),
+        f"{summary}; outside the expected {min_ratio}-{max_ratio}.",
+        "Check with the data owner that the extract is complete (truncated or duplicated files change volume).",
+    )
+
+
+def active_filter(cursor, qualified: str, alias: str = "") -> str:
+    """'AND IsDeletedInSource = 0' when the table soft-deletes, else ''."""
+
+    cursor.execute("SELECT COL_LENGTH(?, 'IsDeletedInSource')", qualified)
+
+    return f"AND {alias}[IsDeletedInSource] = 0" if cursor.fetchone()[0] is not None else ""
+
+
+def control_duplicate_keys(cursor, control, context) -> tuple:
+    """No business key occurs more than once among the target's active (or current) rows."""
+
+    params = control["params"]
+    target_name = params["target_table"]
+    target = quote_table(cursor, target_name)
+    keys = [quote_column(cursor, target_name, column) for column in params["target_key"]]
+    filters = {
+        "active": active_filter(cursor, target_name),
+        "current": "AND [IsCurrent] = 1 " + active_filter(cursor, target_name),
+        "all": "",
+    }
+
+    if params.get("target_filter", "active") not in filters:
+        raise ControlConfigurationError(f"Unknown target_filter {params.get('target_filter')!r}")
+
+    cursor.execute(
+        f"SELECT COUNT(*), ISNULL(SUM(n), 0) FROM (SELECT COUNT(*) AS n FROM {target} WHERE 1 = 1 "
+        f"{filters[params.get('target_filter', 'active')]} GROUP BY {', '.join(keys)} HAVING COUNT(*) > 1) AS d"
+    )
+    duplicated_keys, rows = cursor.fetchone()
+    key_names = ", ".join(params["target_key"])
+
+    if duplicated_keys:
+        return (
+            "FAIL",
+            duplicated_keys,
+            0,
+            f"{duplicated_keys} key(s) of {target_name} ({key_names}) occur more than once ({rows} rows).",
+            "Find the duplicated keys and correct the load; duplicates double-count in every report.",
+        )
+
+    return "PASS", 0, 0, f"Every {key_names} of {target_name} occurs once.", None
+
+
+def member_label(cursor, spec: dict | None, key_expression: str) -> tuple[str, str]:
+    """SELECT expression and JOIN that show a readable label for a member key."""
+
+    if not spec:
+        return f"CONVERT(NVARCHAR(100), {key_expression})", ""
+
+    table = quote_table(cursor, spec["table"])
+    key = quote_column(cursor, spec["table"], spec["key"])
+    column = quote_column(cursor, spec["table"], spec["column"])
+
+    return f"CONVERT(NVARCHAR(100), l.{column})", f"LEFT JOIN {table} AS l ON l.{key} = {key_expression}"
+
+
+def allowed_failures(control, points: int) -> float:
+    """Failures a control's tolerance accepts: a count (ABSOLUTE) or a percentage of the points checked."""
+
+    tolerance = float(control.get("tolerance") or 0)
+
+    return points * tolerance / 100 if control.get("tolerance_type") == "PERCENT" else tolerance
+
+
+def control_expected_records(cursor, control, context) -> tuple:
+    """Every expected member has at least one record for every date between the first and last date loaded."""
+
+    params = control["params"]
+    target_name = params["target_table"]
+    target = quote_table(cursor, target_name)
+    date_key = quote_column(cursor, target_name, params["date_key"])
+    member_key = quote_column(cursor, target_name, params["member_key"])
+    expected = params["expected_members"]
+    members = quote_table(cursor, expected["table"])
+    members_key = quote_column(cursor, expected["table"], expected["key"])
+    label = quote_column(cursor, expected["table"], expected.get("label") or expected["key"])
+    member_filter = ""
+
+    if expected.get("filter_column"):
+        member_filter = f"AND m.{quote_column(cursor, expected['table'], expected['filter_column'])} = 1"
+
+    active = active_filter(cursor, target_name, "t.")
+
+    cursor.execute(
+        f"""
+        WITH Span AS (
+            SELECT MIN(t.{date_key}) AS FirstKey, MAX(t.{date_key}) AS LastKey FROM {target} AS t WHERE 1 = 1 {active}
+        ), Expected AS (
+            SELECT m.{members_key} AS MemberKey, CONVERT(NVARCHAR(100), m.{label}) AS MemberLabel, d.DateKey, d.[Date]
+            FROM {members} AS m
+            CROSS JOIN gold.DimDate AS d
+            CROSS JOIN Span AS s
+            WHERE d.DateKey BETWEEN s.FirstKey AND s.LastKey AND m.{members_key} > 0 {member_filter}
+        )
+        SELECT e.MemberLabel, e.[Date],
+               IIF(EXISTS (SELECT 1 FROM {target} AS t
+                           WHERE t.{member_key} = e.MemberKey AND t.{date_key} = e.DateKey {active}), 1, 0) AS Present
+        FROM Expected AS e
+        ORDER BY e.[Date], e.MemberLabel
+        """
+    )
+    expected_records = cursor.fetchall()
+    missing = [row for row in expected_records if not row.Present]
+
+    if len(missing) <= allowed_failures(control, len(expected_records)):
+        return (
+            "PASS",
+            len(missing),
+            0,
+            f"{len(expected_records) - len(missing)} of {len(expected_records)} expected member-date record(s) "
+            f"present in {target_name}.",
+            None,
+        )
+
+    examples = ", ".join(f"{row.MemberLabel} {row.Date:%Y-%m-%d}" for row in missing[:5])
+
+    return (
+        "FAIL",
+        len(missing),
+        0,
+        f"{len(missing)} of {len(expected_records)} expected member-date record(s) missing from {target_name}: "
+        f"{examples}.",
+        "Find out why the records are missing (not submitted, quarantined or not loaded) and resubmit them.",
+    )
+
+
+def control_anomaly(cursor, control, context) -> tuple:
+    """
+    Period totals of a measure scored against their own history with a
+    robust z-score (median and MAD; mean absolute deviation when the MAD is
+    0). Every anomaly is recorded in audit.DataAnomaly. The tolerance is the
+    number (or percentage) of anomalous points accepted.
+    """
+
+    params = control["params"]
+    target_name = params["target_table"]
+    target = quote_table(cursor, target_name)
+    date_key = quote_column(cursor, target_name, params["date_key"])
+    measure = quote_column(cursor, target_name, params["measure"])
+    threshold = float(params.get("z_threshold", 3.5))
+    min_points = int(params.get("min_points", 10))
+    partition = "" if params.get("baseline", "per_group") == "pooled" else "PARTITION BY GroupKey"
+    group = "t." + quote_column(cursor, target_name, params["group_key"]) if params.get("group_key") else "0"
+    group_by = f"{group}, t.{date_key}" if params.get("group_key") else f"t.{date_key}"
+    label, label_join = member_label(cursor, params.get("group_label"), "p.GroupKey")
+    active = active_filter(cursor, target_name, "t.")
+
+    cursor.execute(
+        f"""
+        WITH Points AS (
+            SELECT {group} AS GroupKey, t.{date_key} AS DateKey, SUM(t.{measure}) AS Value
+            FROM {target} AS t WHERE 1 = 1 {active}
+            GROUP BY {group_by}
+        ), Medians AS (
+            SELECT *, PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY Value) OVER ({partition}) AS Median,
+                   COUNT(*) OVER ({partition}) AS Points
+            FROM Points
+        ), Spread AS (
+            SELECT *, PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ABS(Value - Median)) OVER ({partition}) AS Mad,
+                   AVG(ABS(Value - Median)) OVER ({partition}) AS MeanAbsoluteDeviation
+            FROM Medians
+        ), Scored AS (
+            SELECT *, CASE WHEN Mad > 0 THEN 0.6745 * ABS(Value - Median) / Mad
+                           WHEN MeanAbsoluteDeviation > 0
+                           THEN ABS(Value - Median) / (1.253314 * MeanAbsoluteDeviation) END AS Score
+            FROM Spread
+        )
+        SELECT {label} AS GroupLabel, p.DateKey, p.Value, p.Median, p.Score, p.Points
+        FROM Scored AS p {label_join}
+        ORDER BY p.Score DESC
+        """
+    )
+    scored = cursor.fetchall()
+    anomalies = [row for row in scored if row.Points >= min_points and row.Score is not None and row.Score > threshold]
+    grouped = bool(params.get("group_key"))
+
+    for row in anomalies:
+        cursor.execute(
+            "INSERT INTO audit.DataAnomaly (PipelineExecutionID, ControlCode, TargetObject, MeasureName, GroupLabel, "
+            "DateKey, ObservedValue, BaselineMedian, Score, Threshold) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            context.pipeline_id,
+            control["code"],
+            target_name,
+            params["measure"],
+            row.GroupLabel if grouped else None,
+            row.DateKey,
+            Decimal(str(row.Value)),
+            Decimal(str(round(row.Median, 4))),
+            Decimal(str(round(row.Score, 2))),
+            Decimal(str(threshold)),
+        )
+
+    allowed = allowed_failures(control, len(scored))
+    examples = ", ".join(
+        f"{row.GroupLabel + ' ' if grouped else ''}{row.DateKey}: {row.Value:,.2f} "
+        f"(median {row.Median:,.2f}, score {row.Score:.1f})"
+        for row in anomalies[:3]
+    )
+    summary = f"{len(anomalies)} of {len(scored)} {params['measure']} point(s) score above {threshold}"
+
+    if len(anomalies) <= allowed:
+        return (
+            "PASS",
+            len(anomalies),
+            0,
+            f"{summary} (accepted {allowed:g})" + (f": {examples}." if examples else "."),
+            None,
+        )
+
+    return (
+        "FAIL",
+        len(anomalies),
+        0,
+        f"{summary} in {target_name} (accepted {allowed:g}): {examples}.",
+        "Review the anomalies in audit.DataAnomaly; confirm each is a genuine business event or correct the source.",
+    )
+
+
+def control_cross_total(cursor, control, context) -> tuple:
+    """Total of a measure in one warehouse table equals the total in another (within tolerance)."""
+
+    params = control["params"]
+    totals = []
+
+    for side in ("source", "target"):
+        name = params[f"{side}_table"]
+        table = quote_table(cursor, name)
+        measure = quote_column(cursor, name, params[f"{side}_measure"])
+        active = active_filter(cursor, name) if params.get(f"{side}_active_only") else ""
+        cursor.execute(f"SELECT CONVERT(DECIMAL(38, 6), ISNULL(SUM({measure}), 0)) FROM {table} WHERE 1 = 1 {active}")
+        totals.append(cursor.fetchone()[0])
+
+    expected, observed = totals
+    label = f"{params['target_table']}.{params['target_measure']}"
+    reference = f"{params['source_table']}.{params['source_measure']}"
+
+    if within_tolerance(observed, expected, control.get("tolerance"), control.get("tolerance_type")):
+        return "PASS", float(observed), float(expected), f"{label} total {observed:,.2f} equals {reference}.", None
+
+    return (
+        "FAIL",
+        float(observed),
+        float(expected),
+        f"{label} total {observed:,.2f} differs from {reference} {expected:,.2f} by {observed - expected:,.2f}.",
+        "The derived table lost or double-counted rows; rebuild it and check its procedure.",
+    )
+
+
 CONTROLS = {
     "RECON_ROW_COUNT": control_row_count,
     "RECON_HASH_LINEAGE": control_hash_lineage,
@@ -586,6 +977,12 @@ CONTROLS = {
     "RECON_SCD2_INTEGRITY": control_scd2_integrity,
     "RECON_GL_BALANCE": control_gl_balance,
     "RECON_SUPPLIER": control_supplier,
+    "RECON_SCHEMA": control_schema,
+    "RECON_VOLUME": control_volume,
+    "RECON_DUPLICATE_KEYS": control_duplicate_keys,
+    "RECON_EXPECTED_RECORDS": control_expected_records,
+    "RECON_ANOMALY": control_anomaly,
+    "RECON_CROSS_TOTAL": control_cross_total,
 }
 
 

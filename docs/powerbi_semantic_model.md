@@ -49,7 +49,7 @@ Format currency as `N$ #,##0.00`.
 | Inventory | Stock on hand and value by site, replenishment status (reorder, excess, slow-moving), month-end positions |
 | Assets | Register, depreciation schedule vs GL, local register exceptions, assets by site |
 | Cash management | Cash-up reconciliation by branch and day, variances, missing and quarantined documents |
-| Data quality and operations | `audit.vw_DataQualityBySource`, `vw_DataQualityByDimension`, `vw_PlatformHealth`, failed controls (steward role) |
+| Data quality and operations | `audit.vw_DataQualityBySource`, `vw_DataQualityByDimension`, `vw_QualityResultsByDimension`, `vw_DataAnomalies`, `vw_PlatformHealth`, failed controls (steward role) |
 
 ## Incremental refresh
 

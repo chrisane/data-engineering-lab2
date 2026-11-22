@@ -177,6 +177,54 @@ def test_circular_dependency_is_rejected(broken_pipeline):
         plan()
 
 
+def test_every_check_has_a_quality_dimension(catalogue):
+
+    dimensions = {d["DimensionCode"] for d in catalogue.quality_dimensions}
+    reconciliation = {c["CheckType"] for c in catalogue.quality_check_types if c["CheckStage"] == "RECONCILIATION"}
+
+    assert dimensions == {
+        "FRESHNESS",
+        "VOLUME",
+        "SCHEMA",
+        "COMPLETENESS",
+        "DUPLICATE",
+        "ACCURACY",
+        "CONSISTENCY",
+        "ANOMALY",
+    }
+    assert reconciliation == RECONCILIATION_HANDLERS
+    assert all(c["DimensionCode"] in dimensions for c in catalogue.quality_check_types)
+    assert all(r["DqDimension"] in dimensions for r in catalogue.rules)
+
+
+def test_mapping_missing_a_required_dimension_is_rejected(broken_pipeline):
+
+    broken_pipeline["default_controls"]["SILVER"] = [
+        c for c in broken_pipeline["default_controls"]["SILVER"] if c["name"] != "VOLUME"
+    ]
+
+    with pytest.raises(ConfigurationError, match="no check covers VOLUME"):
+        plan()
+
+
+def test_dimension_without_any_check_is_rejected(broken_pipeline):
+
+    for mapping in broken_pipeline["mappings"]:
+        mapping["controls"] = [c for c in mapping.get("controls") or [] if c["handler"] != "RECON_ANOMALY"]
+
+    with pytest.raises(ConfigurationError, match="ANOMALY is not covered"):
+        plan()
+
+
+def test_quality_exemption_needs_a_reason(broken_pipeline):
+
+    mapping = next(m for m in broken_pipeline["mappings"] if m["code"] == "GOLD_DIM_DATE")
+    mapping["quality_exempt"]["COMPLETENESS"] = ""
+
+    with pytest.raises(ConfigurationError, match="needs a reason"):
+        plan()
+
+
 def test_unjustified_tolerance_is_rejected(broken_pipeline):
 
     mapping = next(m for m in broken_pipeline["mappings"] if m["code"] == "GOLD_FACT_SALES")

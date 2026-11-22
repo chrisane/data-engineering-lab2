@@ -69,6 +69,7 @@ def test_no_destructive_statements(path):
         approved = set(APPROVED_FULL_REFRESH.values()) | {
             "DELETE FROM meta.RebateThreshold",
             "DELETE FROM presentation.ReplenishmentPlan",  # rebuilt each run by presentation.usp_BuildReplenishmentPlan
+            "DELETE FROM gold.FeatureDemandWeekly",  # rebuilt each run by gold.usp_BuildFeatureDemandWeekly
         }
         assert re.sub(r"\s+", " ", statement) in approved, (
             f"{path.name}: unconditional '{statement}' is only allowed in approved full-refresh procedures"

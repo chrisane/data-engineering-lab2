@@ -367,6 +367,7 @@ HANDLERS: dict[str, Handler] = {
         _procedure("FACT_ASSET_DEPRECIATION", "gold.usp_BuildFactAssetDepreciation", "gold.FactAssetDepreciation"),
         _procedure("FACT_BRANCH_CASHUP", "gold.usp_LoadFactBranchCashup", "gold.FactBranchCashup"),
         _procedure("BRIDGE_PRODUCT_SUPPLIER", "gold.usp_LoadBridgeProductSupplier", "gold.BridgeProductSupplier"),
+        _procedure("FEATURE_DEMAND_WEEKLY", "gold.usp_BuildFeatureDemandWeekly", "gold.FeatureDemandWeekly"),
         Handler(
             "PRESENTATION_REPLENISHMENT_PLAN",
             "STORED_PROCEDURE",
@@ -390,6 +391,12 @@ RECONCILIATION_HANDLERS = {
     "RECON_SCD2_INTEGRITY",
     "RECON_GL_BALANCE",
     "RECON_SUPPLIER",
+    "RECON_SCHEMA",
+    "RECON_VOLUME",
+    "RECON_DUPLICATE_KEYS",
+    "RECON_EXPECTED_RECORDS",
+    "RECON_ANOMALY",
+    "RECON_CROSS_TOTAL",
 }
 
 

@@ -43,6 +43,7 @@ erDiagram
 | FactAssetDepreciation | ERP asset and month in service | FULL_REFRESH | Asset, Date, Site |
 | FactBranchCashup | cash-up document (`shift_id`) | UPSERT (per document) | Date, Site |
 | BridgeProductSupplier | product and approved supplier | SCD1 | Product, Supplier |
+| FeatureDemandWeekly (ML) | site, product and week | FULL_REFRESH | Date (week start), Site, Product |
 
 Facts of different grains are never joined to each other directly. Analysis across them (for example
 sales against cash-ups, or purchases against receipts) aggregates each fact to a common grain through
@@ -111,6 +112,47 @@ warehouse:
 - Contract changes are made in `config/source_registry.yaml`, followed by a new migration (generated
   with `scripts/generate_staging_ddl.py` for new tables, hand-written `ALTER` for existing ones). The
   integration tests compare the live staging schema with the registry, so drift is caught.
+
+## ML feature table: demand forecasting
+
+`gold.FeatureDemandWeekly` holds model-ready features for forecasting weekly demand per branch and
+product, for training and for inference. Built each run by `gold.usp_BuildFeatureDemandWeekly`
+(mapping `GOLD_FEATURE_DEMAND_WEEKLY`); models and notebooks read
+`presentation.vw_DemandForecastFeatures`, which adds readable site and product names.
+
+**Grain.** One row per site, product (business key, all versions combined) and week (Monday start),
+for every site and product that has ever sold, from the week of the first sale to the forecast week.
+Weeks without sales are included with 0 units, so each series is dense (66,780 rows on the synthetic
+data: 1,260 site-product series x 53 weeks).
+
+**Point-in-time correct.** Every feature uses only data from before the week starts, so a model never
+trains on information it would not have had when forecasting:
+
+| Feature | Definition |
+|---|---|
+| `QtyLag1W`, `QtyLag2W`, `QtyLag4W` | Units sold 1, 2 and 4 weeks before |
+| `QtyRolling4WAvg`, `QtyRolling13WAvg` | Average weekly units over the previous 4 / 13 weeks (NULL until that much history exists) |
+| `QtyRolling4WStdDev` | Volatility over the previous 4 weeks |
+| `AvgUnitPrice4W` | Net amount / units over the previous 4 weeks |
+| `WeeksSinceLastSale` | Weeks since the last earlier week with a sale |
+| `StockOnHandStart`, `StockCoverWeeks` | Stock at the start of the week (all movements before it) and weeks of cover at the recent sales rate |
+| `WeekOfYear`, `MonthNumber`, `QuarterNumber`, `Category`, `IsDCStocked`, `HistoryWeeks` | Calendar and product context |
+
+**Label and split.** `TargetQuantity` is the week's own sales (the label). Weeks that lie wholly within
+the loaded data are `TRAINING` rows. The last week is the `INFERENCE` row to forecast; its features
+are complete, its label is the partial week so far (or NULL when no data reaches it) and
+`IsLabelComplete = 0`.
+
+```sql
+-- Training set
+SELECT * FROM presentation.vw_DemandForecastFeatures WHERE DatasetSplit = 'TRAINING' AND HistoryWeeks >= 13;
+-- Rows to score with the trained model
+SELECT * FROM presentation.vw_DemandForecastFeatures WHERE DatasetSplit = 'INFERENCE';
+```
+
+**Quality.** Controls on every build: schema, warehouse audit, duplicate keys on the grain, and
+`LABEL_TOTAL` (the labels add up to exactly the units in `gold.FactSalesLine`). The integration tests
+also prove the lags and rolling windows equal the earlier weeks' labels (no leakage).
 
 ## Business-rule views (presentation)
 

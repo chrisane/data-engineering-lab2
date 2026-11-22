@@ -193,6 +193,15 @@ sources:
       update_frequency: On change
     structure:
       sheet: Sheet1
+      # silver.Supplier predates contract-generated staging tables (migration
+      # 005) and keeps its original types; declared here so the SCHEMA control
+      # checks the table against what it really is.
+      sql_types:
+        supplier_id: VARCHAR(20)
+        supplier_name: NVARCHAR(200)
+        location: NVARCHAR(100)
+        minimum_order_value_nad: DECIMAL(18, 2)
+        rebate_rate: DECIMAL(9, 6)
       required_columns:
         - supplier_id
         - supplier_name

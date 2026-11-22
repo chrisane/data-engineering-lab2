@@ -2,292 +2,405 @@
 
 # Data quality and business rules catalogue
 
+## Quality dimensions
+
+Every check proves one of these dimensions (config/pipeline.yaml, quality_dimensions). Metadata sync rejects a check without a dimension and a mapping that misses a dimension its layer requires.
+
+| Dimension | Meaning |
+|---|---|
+| FRESHNESS | New data arrives within the source's expected update interval. |
+| VOLUME | Row counts are plausible and in line with previous loads. |
+| SCHEMA | Files and tables have the expected sheets, columns and types. |
+| COMPLETENESS | Required values, rows and expected records are present and nothing is lost between layers. |
+| DUPLICATE | Files and business keys occur only once. |
+| ACCURACY | Values are valid and agree with their source, calculations and totals. |
+| CONSISTENCY | Related data agrees across fields, tables and layers (references, balances, history). |
+| ANOMALY | Values are statistically in line with their own history. |
+
+## Check types
+
+| Check | Stage | Dimension | Description |
+|---|---|---|---|
+| ALLOWED_VALUE | VALIDATION | ACCURACY |  |
+| NUMERIC_RANGE | VALIDATION | ACCURACY |  |
+| PATTERN | VALIDATION | ACCURACY |  |
+| RECON_CROSS_TOTAL | RECONCILIATION | ACCURACY | Totals of a measure agree between two warehouse tables |
+| RECON_MEASURE_TOTAL | RECONCILIATION | ACCURACY | Staged and warehouse totals of a measure agree within tolerance |
+| VALID_DATE | VALIDATION | ACCURACY |  |
+| RECON_ANOMALY | RECONCILIATION | ANOMALY | Period totals of a measure that deviate strongly from their own history (robust z-score) |
+| RECON_EXPECTED_RECORDS | RECONCILIATION | COMPLETENESS | Every expected member (for example each branch) has a record for every date in range |
+| RECON_KEY_COVERAGE | RECONCILIATION | COMPLETENESS | Every staged business key is present (and active) in the target |
+| RECON_ROW_COUNT | RECONCILIATION | COMPLETENESS | Validated source rows equal staged rows for the batch |
+| RECON_WAREHOUSE_AUDIT | RECONCILIATION | COMPLETENESS | Warehouse execution counts reconcile to the staged batch |
+| REQUIRED_VALUE | VALIDATION | COMPLETENESS |  |
+| RECON_GL_BALANCE | RECONCILIATION | CONSISTENCY | Every journal and the ledger as a whole balance |
+| RECON_HASH_LINEAGE | RECONCILIATION | CONSISTENCY | Staged rows carry the gate-approved file hash and complete lineage |
+| RECON_SCD2_INTEGRITY | RECONCILIATION | CONSISTENCY | One current version per key and no overlapping history |
+| RECON_SUPPLIER | RECONCILIATION | CONSISTENCY | Existing supplier reconciliation procedure (audit.usp_ReconcileSupplier) |
+| RECON_UNKNOWN_MEMBERS | RECONCILIATION | CONSISTENCY | Fact rows resolved to Unknown (-1) dimension members |
+| REFERENTIAL_INTEGRITY | VALIDATION | CONSISTENCY |  |
+| RECON_DUPLICATE_KEYS | RECONCILIATION | DUPLICATE | No business key occurs more than once among the target's active rows |
+| SKIPPED_DUPLICATE | VALIDATION | DUPLICATE |  |
+| UNIQUE | VALIDATION | DUPLICATE |  |
+| RECON_FRESHNESS | RECONCILIATION | FRESHNESS | Latest new data for the source is within its freshness threshold |
+| BLANK_COLUMN_HEADER | VALIDATION | SCHEMA |  |
+| DATA_TYPE | VALIDATION | SCHEMA |  |
+| DATE_STORED_AS_TEXT | VALIDATION | SCHEMA |  |
+| DUPLICATE_COLUMN | VALIDATION | SCHEMA |  |
+| FILENAME_CONVENTION | VALIDATION | SCHEMA |  |
+| FILE_READABLE | VALIDATION | SCHEMA |  |
+| INVALID_CONTENT | VALIDATION | SCHEMA |  |
+| INVALID_FORMAT | VALIDATION | SCHEMA |  |
+| PDF_READABLE | VALIDATION | SCHEMA |  |
+| RECON_SCHEMA | RECONCILIATION | SCHEMA | The target table has the columns (and for silver the types) its contract or lineage declares |
+| REQUIRED_COLUMN | VALIDATION | SCHEMA |  |
+| REQUIRED_LABEL | VALIDATION | SCHEMA |  |
+| REQUIRED_SHEET | VALIDATION | SCHEMA |  |
+| TEMPLATE_VERSION | VALIDATION | SCHEMA |  |
+| UNEXPECTED_COLUMN | VALIDATION | SCHEMA |  |
+| WORKBOOK_READABLE | VALIDATION | SCHEMA |  |
+| EMPTY_FILE | VALIDATION | VOLUME |  |
+| MINIMUM_ROWS | VALIDATION | VOLUME |  |
+| RECON_VOLUME | RECONCILIATION | VOLUME | Rows selected for loading are in line with recent runs |
+
+## Coverage by mapping
+
+Number of checks per dimension: validation rules of the source (silver) plus reconciliation controls after the load. Required: silver FRESHNESS, VOLUME, SCHEMA, COMPLETENESS; gold and presentation SCHEMA, COMPLETENESS (or a documented exemption).
+
+| Mapping | Layer | FRESHNESS | VOLUME | SCHEMA | COMPLETENESS | DUPLICATE | ACCURACY | CONSISTENCY | ANOMALY |
+|---|---|---|---|---|---|---|---|---|---|
+| SILVER_SITE | SILVER | 1 | 1 | 1 | 4 | 1 | 2 | 1 | - |
+| SILVER_DEPARTMENT | SILVER | 1 | 1 | 1 | 3 | 1 | 1 | 1 | - |
+| SILVER_PRODUCT | SILVER | 1 | 1 | 3 | 6 | 1 | 6 | 1 | - |
+| SILVER_SUPPLIER | SILVER | 1 | 1 | 4 | 4 | 1 | 4 | 1 | - |
+| SILVER_PRODUCT_SUPPLIER | SILVER | 1 | 1 | 2 | 4 | 1 | 1 | 3 | - |
+| SILVER_CUSTOMER | SILVER | 1 | 1 | 2 | 4 | 1 | 3 | 1 | - |
+| SILVER_PURCHASE_ORDER | SILVER | 1 | 1 | 2 | 7 | 1 | 4 | 3 | - |
+| SILVER_PURCHASE_ORDER_LINE | SILVER | 1 | 1 | 4 | 6 | 1 | 4 | 3 | - |
+| SILVER_GOODS_RECEIPT | SILVER | 1 | 1 | 1 | 6 | 1 | 1 | 4 | - |
+| SILVER_SUPPLIER_INVOICE | SILVER | 1 | 1 | 4 | 9 | 1 | 7 | 3 | - |
+| SILVER_SUPPLIER_REBATE | SILVER | 1 | 1 | 3 | 6 | 1 | 5 | 2 | - |
+| SILVER_SALES_TRANSACTION | SILVER | 1 | 1 | 4 | 8 | 1 | 7 | 3 | - |
+| SILVER_SALES_LINE | SILVER | 1 | 1 | 5 | 7 | 1 | 5 | 3 | - |
+| SILVER_INVENTORY_MOVEMENT | SILVER | 1 | 1 | 3 | 9 | 1 | 3 | 3 | - |
+| SILVER_OPERATING_EXPENSE | SILVER | 1 | 1 | 2 | 6 | 1 | 3 | 2 | - |
+| SILVER_GENERAL_LEDGER | SILVER | 1 | 1 | 3 | 7 | - | 3 | 5 | - |
+| SILVER_FIXED_ASSET | SILVER | 1 | 1 | 6 | 8 | 1 | 12 | 2 | - |
+| SILVER_BRANCH_LOCAL_ASSET | SILVER | 1 | 1 | 1 | 5 | 1 | 2 | 3 | - |
+| SILVER_BRANCH_CASHUP | SILVER | 1 | 1 | 11 | 13 | - | 17 | 2 | - |
+| SILVER_CHART_OF_ACCOUNTS | SILVER | 1 | 1 | 1 | 1 | - | - | 1 | - |
+| GOLD_DIM_DATE | GOLD | - | - | 1 | - | - | - | - | - |
+| GOLD_DIM_SITE | GOLD | - | - | 1 | 2 | 1 | - | - | - |
+| GOLD_DIM_DEPARTMENT | GOLD | - | - | 1 | 2 | 1 | - | - | - |
+| GOLD_DIM_PRODUCT | GOLD | - | - | 1 | 2 | 1 | - | 1 | - |
+| GOLD_DIM_CUSTOMER | GOLD | - | - | 1 | 2 | 1 | - | 1 | - |
+| GOLD_DIM_SUPPLIER | GOLD | - | - | 1 | 1 | 1 | - | 1 | - |
+| GOLD_DIM_ACCOUNT | GOLD | - | - | 1 | 2 | 1 | - | - | - |
+| GOLD_DIM_ASSET | GOLD | - | - | 1 | 2 | 1 | 1 | - | - |
+| GOLD_DIM_LOCAL_ASSET | GOLD | - | - | 1 | 2 | 1 | - | - | - |
+| GOLD_BRIDGE_PRODUCT_SUPPLIER | GOLD | - | - | 1 | 2 | 1 | - | 1 | - |
+| GOLD_FACT_SALES | GOLD | - | - | 1 | 3 | 1 | 1 | 1 | 1 |
+| GOLD_FACT_SALES_LINE | GOLD | - | - | 1 | 2 | 1 | 1 | 1 | - |
+| GOLD_FACT_INVENTORY_MOVEMENT | GOLD | - | - | 1 | 2 | 1 | 1 | 1 | - |
+| GOLD_FACT_INVENTORY_SNAPSHOT | GOLD | - | - | 1 | 1 | - | - | - | - |
+| GOLD_FEATURE_DEMAND_WEEKLY | GOLD | - | - | 1 | 1 | 1 | 1 | - | - |
+| GOLD_FACT_PURCHASE_ORDER | GOLD | - | - | 1 | 2 | 1 | 1 | 1 | - |
+| GOLD_FACT_PURCHASE_ORDER_LINE | GOLD | - | - | 1 | 2 | 1 | 1 | 1 | - |
+| GOLD_FACT_GOODS_RECEIPT | GOLD | - | - | 1 | 2 | 1 | - | 1 | - |
+| GOLD_FACT_SUPPLIER_INVOICE | GOLD | - | - | 1 | 2 | 1 | 1 | 1 | - |
+| GOLD_FACT_SUPPLIER_REBATE | GOLD | - | - | 1 | 2 | 1 | 1 | 1 | - |
+| GOLD_FACT_GENERAL_LEDGER | GOLD | - | - | 1 | 2 | 1 | 2 | 2 | - |
+| GOLD_FACT_OPERATING_EXPENSE | GOLD | - | - | 1 | 2 | 1 | 1 | 1 | - |
+| GOLD_FACT_ASSET_DEPRECIATION | GOLD | - | - | 1 | 1 | - | - | - | - |
+| GOLD_FACT_BRANCH_CASHUP | GOLD | - | - | 1 | 3 | 1 | - | 1 | 1 |
+| PRESENTATION_REPLENISHMENT_PLAN | PRESENTATION | - | - | 1 | 1 | - | - | - | - |
+
 ## Validation rules (before staging)
 
-Applied to every source file by src/validation; a failed ERROR rule blocks the file at the load gate. DQ dimensions follow DAMA-DMBOK (completeness, uniqueness, validity, consistency, accuracy).
+Applied to every source file by src/validation; a failed ERROR rule blocks the file at the load gate.
 
-| Rule | Stage | Field | Severity | DQ dimension | Definition | Owner |
+| Rule | Stage | Field | Severity | Dimension | Definition | Owner |
 |---|---|---|---|---|---|---|
-| site_master.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | Completeness | site_id must not be blank. | Head of Operations (Operations) |
-| site_master.REQUIRED_VALUE.site_name | DATA_VALIDATION | site_name | ERROR | Completeness | site_name must not be blank. | Head of Operations (Operations) |
-| site_master.REQUIRED_VALUE.site_type | DATA_VALIDATION | site_type | ERROR | Completeness | site_type must not be blank. | Head of Operations (Operations) |
-| site_master.UNIQUE.site_id | DATA_VALIDATION | site_id | ERROR | Uniqueness | site_id must be unique. | Head of Operations (Operations) |
-| site_master.ALLOWED_VALUE.site_type | DATA_VALIDATION | site_type | ERROR | Validity | site_type must be one of ['HEAD_OFFICE', 'DISTRIBUTION_CENTRE', 'BRANCH']. | Head of Operations (Operations) |
-| site_master.PATTERN.site_id | DATA_VALIDATION | site_id | ERROR | Validity | site_id must match ^(HO\|DC\|BR)\d{3}$. | Head of Operations (Operations) |
-| department_master.REQUIRED_VALUE.department_id | DATA_VALIDATION | department_id | ERROR | Completeness | department_id must not be blank. | Head of Human Resources (Human Resources) |
-| department_master.REQUIRED_VALUE.department_name | DATA_VALIDATION | department_name | ERROR | Completeness | department_name must not be blank. | Head of Human Resources (Human Resources) |
-| department_master.UNIQUE.department_id | DATA_VALIDATION | department_id | ERROR | Uniqueness | department_id must be unique. | Head of Human Resources (Human Resources) |
-| department_master.PATTERN.department_id | DATA_VALIDATION | department_id | ERROR | Validity | department_id must match ^D\d{3}$. | Head of Human Resources (Human Resources) |
-| product_master.REQUIRED_VALUE.product_id | DATA_VALIDATION | product_id | ERROR | Completeness | product_id must not be blank. | Procurement Manager (Procurement) |
-| product_master.REQUIRED_VALUE.product_name | DATA_VALIDATION | product_name | ERROR | Completeness | product_name must not be blank. | Procurement Manager (Procurement) |
-| product_master.REQUIRED_VALUE.category | DATA_VALIDATION | category | ERROR | Completeness | category must not be blank. | Procurement Manager (Procurement) |
-| product_master.REQUIRED_VALUE.standard_cost | DATA_VALIDATION | standard_cost | ERROR | Completeness | standard_cost must not be blank. | Procurement Manager (Procurement) |
-| product_master.REQUIRED_VALUE.selling_price | DATA_VALIDATION | selling_price | ERROR | Completeness | selling_price must not be blank. | Procurement Manager (Procurement) |
-| product_master.UNIQUE.product_id | DATA_VALIDATION | product_id | ERROR | Uniqueness | product_id must be unique. | Procurement Manager (Procurement) |
-| product_master.DATA_TYPE.standard_cost | DATA_VALIDATION | standard_cost | ERROR | Validity | standard_cost must be numeric. | Procurement Manager (Procurement) |
-| product_master.NUMERIC_RANGE.standard_cost | DATA_VALIDATION | standard_cost | ERROR | Validity | standard_cost must be within the permitted range. | Procurement Manager (Procurement) |
-| product_master.DATA_TYPE.selling_price | DATA_VALIDATION | selling_price | ERROR | Validity | selling_price must be numeric. | Procurement Manager (Procurement) |
-| product_master.NUMERIC_RANGE.selling_price | DATA_VALIDATION | selling_price | ERROR | Validity | selling_price must be within the permitted range. | Procurement Manager (Procurement) |
-| product_master.ALLOWED_VALUE.category | DATA_VALIDATION | category | ERROR | Validity | category must be one of ['Grocery', 'Beverages', 'Household', 'Personal Care', 'Stationery', 'Specialized Equipment', 'Local Specialty']. | Procurement Manager (Procurement) |
-| product_master.ALLOWED_VALUE.dc_stocked | DATA_VALIDATION | dc_stocked | ERROR | Validity | dc_stocked must be one of [True, False]. | Procurement Manager (Procurement) |
-| product_master.PATTERN.product_id | DATA_VALIDATION | product_id | ERROR | Validity | product_id must match ^P\d{5}$. | Procurement Manager (Procurement) |
-| product_master.SELLING_PRICE_ABOVE_COST.selling_price | BUSINESS_RULE_VALIDATION | selling_price | WARNING | Accuracy | selling_price must be >= standard_cost. | Procurement Manager (Procurement) |
-| supplier_master.REQUIRED_VALUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | Completeness | supplier_id must not be blank. | Procurement Manager (Procurement) |
-| supplier_master.REQUIRED_VALUE.supplier_name | DATA_VALIDATION | supplier_name | ERROR | Completeness | supplier_name must not be blank. | Procurement Manager (Procurement) |
-| supplier_master.REQUIRED_VALUE.minimum_order_value_nad | DATA_VALIDATION | minimum_order_value_nad | ERROR | Completeness | minimum_order_value_nad must not be blank. | Procurement Manager (Procurement) |
-| supplier_master.UNIQUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | Uniqueness | supplier_id must be unique. | Procurement Manager (Procurement) |
-| supplier_master.DATA_TYPE.minimum_order_value_nad | DATA_VALIDATION | minimum_order_value_nad | ERROR | Validity | minimum_order_value_nad must be numeric. | Procurement Manager (Procurement) |
-| supplier_master.NUMERIC_RANGE.minimum_order_value_nad | DATA_VALIDATION | minimum_order_value_nad | ERROR | Validity | minimum_order_value_nad must be within the permitted range. | Procurement Manager (Procurement) |
-| supplier_master.DATA_TYPE.rebate_rate | DATA_VALIDATION | rebate_rate | ERROR | Validity | rebate_rate must be numeric. | Procurement Manager (Procurement) |
-| supplier_master.NUMERIC_RANGE.rebate_rate | DATA_VALIDATION | rebate_rate | ERROR | Validity | rebate_rate must be within the permitted range. | Procurement Manager (Procurement) |
-| supplier_master.DATA_TYPE.payment_terms_days | DATA_VALIDATION | payment_terms_days | ERROR | Validity | payment_terms_days must be a whole number. | Procurement Manager (Procurement) |
-| supplier_master.NUMERIC_RANGE.payment_terms_days | DATA_VALIDATION | payment_terms_days | ERROR | Validity | payment_terms_days must be within the permitted range. | Procurement Manager (Procurement) |
-| supplier_master.PATTERN.supplier_id | DATA_VALIDATION | supplier_id | ERROR | Validity | supplier_id must match ^SUP\d{4}$. | Procurement Manager (Procurement) |
-| product_supplier.REQUIRED_VALUE.product_id | DATA_VALIDATION | product_id | ERROR | Completeness | product_id must not be blank. | Procurement Manager (Procurement) |
-| product_supplier.REQUIRED_VALUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | Completeness | supplier_id must not be blank. | Procurement Manager (Procurement) |
-| product_supplier.REQUIRED_VALUE.supplier_unit_cost | DATA_VALIDATION | supplier_unit_cost | ERROR | Completeness | supplier_unit_cost must not be blank. | Procurement Manager (Procurement) |
-| product_supplier.UNIQUE.product_id+supplier_id | DATA_VALIDATION | product_id+supplier_id | ERROR | Uniqueness | product_id + supplier_id must be unique. | Procurement Manager (Procurement) |
-| product_supplier.DATA_TYPE.supplier_unit_cost | DATA_VALIDATION | supplier_unit_cost | ERROR | Validity | supplier_unit_cost must be numeric. | Procurement Manager (Procurement) |
-| product_supplier.NUMERIC_RANGE.supplier_unit_cost | DATA_VALIDATION | supplier_unit_cost | ERROR | Validity | supplier_unit_cost must be within the permitted range. | Procurement Manager (Procurement) |
-| product_supplier.REFERENTIAL_INTEGRITY.product_id | DATA_VALIDATION | product_id | ERROR | Consistency | product_id must exist in product_master.product_id. | Procurement Manager (Procurement) |
-| product_supplier.REFERENTIAL_INTEGRITY.supplier_id | DATA_VALIDATION | supplier_id | ERROR | Consistency | supplier_id must exist in supplier_master.supplier_id. | Procurement Manager (Procurement) |
-| customer_master.REQUIRED_VALUE.customer_id | DATA_VALIDATION | customer_id | ERROR | Completeness | customer_id must not be blank. | Head of Sales (Sales) |
-| customer_master.REQUIRED_VALUE.customer_name | DATA_VALIDATION | customer_name | ERROR | Completeness | customer_name must not be blank. | Head of Sales (Sales) |
-| customer_master.REQUIRED_VALUE.customer_type | DATA_VALIDATION | customer_type | ERROR | Completeness | customer_type must not be blank. | Head of Sales (Sales) |
-| customer_master.UNIQUE.customer_id | DATA_VALIDATION | customer_id | ERROR | Uniqueness | customer_id must be unique. | Head of Sales (Sales) |
-| customer_master.DATA_TYPE.credit_limit | DATA_VALIDATION | credit_limit | ERROR | Validity | credit_limit must be numeric. | Head of Sales (Sales) |
-| customer_master.NUMERIC_RANGE.credit_limit | DATA_VALIDATION | credit_limit | ERROR | Validity | credit_limit must be within the permitted range. | Head of Sales (Sales) |
-| customer_master.ALLOWED_VALUE.customer_type | DATA_VALIDATION | customer_type | ERROR | Validity | customer_type must be one of ['RETAIL', 'BUSINESS']. | Head of Sales (Sales) |
-| customer_master.PATTERN.customer_id | DATA_VALIDATION | customer_id | ERROR | Validity | customer_id must match ^CUST\d{5}$. | Head of Sales (Sales) |
-| purchase_orders.REQUIRED_VALUE.po_id | DATA_VALIDATION | po_id | ERROR | Completeness | po_id must not be blank. | Procurement Manager (Procurement) |
-| purchase_orders.REQUIRED_VALUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | Completeness | supplier_id must not be blank. | Procurement Manager (Procurement) |
-| purchase_orders.REQUIRED_VALUE.po_date | DATA_VALIDATION | po_date | ERROR | Completeness | po_date must not be blank. | Procurement Manager (Procurement) |
-| purchase_orders.REQUIRED_VALUE.delivery_site_id | DATA_VALIDATION | delivery_site_id | ERROR | Completeness | delivery_site_id must not be blank. | Procurement Manager (Procurement) |
-| purchase_orders.REQUIRED_VALUE.po_value | DATA_VALIDATION | po_value | ERROR | Completeness | po_value must not be blank. | Procurement Manager (Procurement) |
-| purchase_orders.REQUIRED_VALUE.status | DATA_VALIDATION | status | ERROR | Completeness | status must not be blank. | Procurement Manager (Procurement) |
-| purchase_orders.UNIQUE.po_id | DATA_VALIDATION | po_id | ERROR | Uniqueness | po_id must be unique. | Procurement Manager (Procurement) |
-| purchase_orders.DATA_TYPE.po_value | DATA_VALIDATION | po_value | ERROR | Validity | po_value must be numeric. | Procurement Manager (Procurement) |
-| purchase_orders.NUMERIC_RANGE.po_value | DATA_VALIDATION | po_value | ERROR | Validity | po_value must be within the permitted range. | Procurement Manager (Procurement) |
-| purchase_orders.VALID_DATE.po_date | DATA_VALIDATION | po_date | ERROR | Validity | po_date must be a valid date. | Procurement Manager (Procurement) |
-| purchase_orders.ALLOWED_VALUE.status | DATA_VALIDATION | status | ERROR | Validity | status must be one of ['DRAFT', 'APPROVED', 'RECEIVED', 'CLOSED', 'CANCELLED']. | Procurement Manager (Procurement) |
-| purchase_orders.REFERENTIAL_INTEGRITY.supplier_id | DATA_VALIDATION | supplier_id | ERROR | Consistency | supplier_id must exist in supplier_master.supplier_id. | Procurement Manager (Procurement) |
-| purchase_orders.REFERENTIAL_INTEGRITY.delivery_site_id | DATA_VALIDATION | delivery_site_id | ERROR | Consistency | delivery_site_id must exist in site_master.site_id. | Procurement Manager (Procurement) |
-| purchase_orders.SUPPLIER_MINIMUM_ORDER_VALUE.po_value | BUSINESS_RULE_VALIDATION | po_value | ERROR | Accuracy | po_value must be >= supplier_master.minimum_order_value_nad. | Procurement Manager (Procurement) |
-| purchase_order_lines.REQUIRED_VALUE.po_id | DATA_VALIDATION | po_id | ERROR | Completeness | po_id must not be blank. | Procurement Manager (Procurement) |
-| purchase_order_lines.REQUIRED_VALUE.product_id | DATA_VALIDATION | product_id | ERROR | Completeness | product_id must not be blank. | Procurement Manager (Procurement) |
-| purchase_order_lines.REQUIRED_VALUE.quantity | DATA_VALIDATION | quantity | ERROR | Completeness | quantity must not be blank. | Procurement Manager (Procurement) |
-| purchase_order_lines.REQUIRED_VALUE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | Completeness | unit_cost must not be blank. | Procurement Manager (Procurement) |
-| purchase_order_lines.REQUIRED_VALUE.line_value | DATA_VALIDATION | line_value | ERROR | Completeness | line_value must not be blank. | Procurement Manager (Procurement) |
-| purchase_order_lines.UNIQUE.po_id+product_id | DATA_VALIDATION | po_id+product_id | ERROR | Uniqueness | po_id + product_id must be unique. | Procurement Manager (Procurement) |
-| purchase_order_lines.DATA_TYPE.quantity | DATA_VALIDATION | quantity | ERROR | Validity | quantity must be a whole number. | Procurement Manager (Procurement) |
-| purchase_order_lines.NUMERIC_RANGE.quantity | DATA_VALIDATION | quantity | ERROR | Validity | quantity must be within the permitted range. | Procurement Manager (Procurement) |
-| purchase_order_lines.DATA_TYPE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | Validity | unit_cost must be numeric. | Procurement Manager (Procurement) |
-| purchase_order_lines.NUMERIC_RANGE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | Validity | unit_cost must be within the permitted range. | Procurement Manager (Procurement) |
-| purchase_order_lines.DATA_TYPE.line_value | DATA_VALIDATION | line_value | ERROR | Validity | line_value must be numeric. | Procurement Manager (Procurement) |
-| purchase_order_lines.NUMERIC_RANGE.line_value | DATA_VALIDATION | line_value | ERROR | Validity | line_value must be within the permitted range. | Procurement Manager (Procurement) |
-| purchase_order_lines.REFERENTIAL_INTEGRITY.po_id | DATA_VALIDATION | po_id | ERROR | Consistency | po_id must exist in purchase_orders.po_id. | Procurement Manager (Procurement) |
-| purchase_order_lines.REFERENTIAL_INTEGRITY.product_id | DATA_VALIDATION | product_id | ERROR | Consistency | product_id must exist in product_master.product_id. | Procurement Manager (Procurement) |
-| purchase_order_lines.CALCULATION.line_value | BUSINESS_RULE_VALIDATION | line_value | ERROR | Accuracy | line_value must equal quantity * unit_cost. | Procurement Manager (Procurement) |
-| goods_receipts.REQUIRED_VALUE.grn_id | DATA_VALIDATION | grn_id | ERROR | Completeness | grn_id must not be blank. | Warehouse Manager (Warehousing) |
-| goods_receipts.REQUIRED_VALUE.po_id | DATA_VALIDATION | po_id | ERROR | Completeness | po_id must not be blank. | Warehouse Manager (Warehousing) |
-| goods_receipts.REQUIRED_VALUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | Completeness | supplier_id must not be blank. | Warehouse Manager (Warehousing) |
-| goods_receipts.REQUIRED_VALUE.receipt_date | DATA_VALIDATION | receipt_date | ERROR | Completeness | receipt_date must not be blank. | Warehouse Manager (Warehousing) |
-| goods_receipts.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | Completeness | site_id must not be blank. | Warehouse Manager (Warehousing) |
-| goods_receipts.UNIQUE.grn_id | DATA_VALIDATION | grn_id | ERROR | Uniqueness | grn_id must be unique. | Warehouse Manager (Warehousing) |
-| goods_receipts.VALID_DATE.receipt_date | DATA_VALIDATION | receipt_date | ERROR | Validity | receipt_date must be a valid date. | Warehouse Manager (Warehousing) |
-| goods_receipts.REFERENTIAL_INTEGRITY.po_id | DATA_VALIDATION | po_id | ERROR | Consistency | po_id must exist in purchase_orders.po_id. | Warehouse Manager (Warehousing) |
-| goods_receipts.REFERENTIAL_INTEGRITY.supplier_id | DATA_VALIDATION | supplier_id | ERROR | Consistency | supplier_id must exist in supplier_master.supplier_id. | Warehouse Manager (Warehousing) |
-| goods_receipts.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | Consistency | site_id must exist in site_master.site_id. | Warehouse Manager (Warehousing) |
-| supplier_invoices.REQUIRED_VALUE.invoice_id | DATA_VALIDATION | invoice_id | ERROR | Completeness | invoice_id must not be blank. | Financial Controller (Finance) |
-| supplier_invoices.REQUIRED_VALUE.po_id | DATA_VALIDATION | po_id | ERROR | Completeness | po_id must not be blank. | Financial Controller (Finance) |
-| supplier_invoices.REQUIRED_VALUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | Completeness | supplier_id must not be blank. | Financial Controller (Finance) |
-| supplier_invoices.REQUIRED_VALUE.invoice_date | DATA_VALIDATION | invoice_date | ERROR | Completeness | invoice_date must not be blank. | Financial Controller (Finance) |
-| supplier_invoices.REQUIRED_VALUE.net_amount | DATA_VALIDATION | net_amount | ERROR | Completeness | net_amount must not be blank. | Financial Controller (Finance) |
-| supplier_invoices.REQUIRED_VALUE.vat_amount | DATA_VALIDATION | vat_amount | ERROR | Completeness | vat_amount must not be blank. | Financial Controller (Finance) |
-| supplier_invoices.REQUIRED_VALUE.total_amount | DATA_VALIDATION | total_amount | ERROR | Completeness | total_amount must not be blank. | Financial Controller (Finance) |
-| supplier_invoices.REQUIRED_VALUE.status | DATA_VALIDATION | status | ERROR | Completeness | status must not be blank. | Financial Controller (Finance) |
-| supplier_invoices.UNIQUE.invoice_id | DATA_VALIDATION | invoice_id | ERROR | Uniqueness | invoice_id must be unique. | Financial Controller (Finance) |
-| supplier_invoices.DATA_TYPE.net_amount | DATA_VALIDATION | net_amount | ERROR | Validity | net_amount must be numeric. | Financial Controller (Finance) |
-| supplier_invoices.NUMERIC_RANGE.net_amount | DATA_VALIDATION | net_amount | ERROR | Validity | net_amount must be within the permitted range. | Financial Controller (Finance) |
-| supplier_invoices.DATA_TYPE.vat_amount | DATA_VALIDATION | vat_amount | ERROR | Validity | vat_amount must be numeric. | Financial Controller (Finance) |
-| supplier_invoices.NUMERIC_RANGE.vat_amount | DATA_VALIDATION | vat_amount | ERROR | Validity | vat_amount must be within the permitted range. | Financial Controller (Finance) |
-| supplier_invoices.DATA_TYPE.total_amount | DATA_VALIDATION | total_amount | ERROR | Validity | total_amount must be numeric. | Financial Controller (Finance) |
-| supplier_invoices.NUMERIC_RANGE.total_amount | DATA_VALIDATION | total_amount | ERROR | Validity | total_amount must be within the permitted range. | Financial Controller (Finance) |
-| supplier_invoices.VALID_DATE.invoice_date | DATA_VALIDATION | invoice_date | ERROR | Validity | invoice_date must be a valid date. | Financial Controller (Finance) |
-| supplier_invoices.ALLOWED_VALUE.status | DATA_VALIDATION | status | ERROR | Validity | status must be one of ['OPEN', 'PAID', 'PARTIALLY_PAID', 'CANCELLED']. | Financial Controller (Finance) |
-| supplier_invoices.REFERENTIAL_INTEGRITY.po_id | DATA_VALIDATION | po_id | ERROR | Consistency | po_id must exist in purchase_orders.po_id. | Financial Controller (Finance) |
-| supplier_invoices.REFERENTIAL_INTEGRITY.supplier_id | DATA_VALIDATION | supplier_id | ERROR | Consistency | supplier_id must exist in supplier_master.supplier_id. | Financial Controller (Finance) |
-| supplier_invoices.CALCULATION.vat_amount | BUSINESS_RULE_VALIDATION | vat_amount | ERROR | Accuracy | vat_amount must equal net_amount * 0.15. | Financial Controller (Finance) |
-| supplier_invoices.CALCULATION.total_amount | BUSINESS_RULE_VALIDATION | total_amount | ERROR | Accuracy | total_amount must equal net_amount + vat_amount. | Financial Controller (Finance) |
-| supplier_rebates.REQUIRED_VALUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | Completeness | supplier_id must not be blank. | Financial Controller (Finance) |
-| supplier_rebates.REQUIRED_VALUE.period | DATA_VALIDATION | period | ERROR | Completeness | period must not be blank. | Financial Controller (Finance) |
-| supplier_rebates.REQUIRED_VALUE.qualifying_spend | DATA_VALIDATION | qualifying_spend | ERROR | Completeness | qualifying_spend must not be blank. | Financial Controller (Finance) |
-| supplier_rebates.REQUIRED_VALUE.rebate_rate | DATA_VALIDATION | rebate_rate | ERROR | Completeness | rebate_rate must not be blank. | Financial Controller (Finance) |
-| supplier_rebates.REQUIRED_VALUE.rebate_amount | DATA_VALIDATION | rebate_amount | ERROR | Completeness | rebate_amount must not be blank. | Financial Controller (Finance) |
-| supplier_rebates.UNIQUE.supplier_id+period | DATA_VALIDATION | supplier_id+period | ERROR | Uniqueness | supplier_id + period must be unique. | Financial Controller (Finance) |
-| supplier_rebates.DATA_TYPE.qualifying_spend | DATA_VALIDATION | qualifying_spend | ERROR | Validity | qualifying_spend must be numeric. | Financial Controller (Finance) |
-| supplier_rebates.NUMERIC_RANGE.qualifying_spend | DATA_VALIDATION | qualifying_spend | ERROR | Validity | qualifying_spend must be within the permitted range. | Financial Controller (Finance) |
-| supplier_rebates.DATA_TYPE.rebate_amount | DATA_VALIDATION | rebate_amount | ERROR | Validity | rebate_amount must be numeric. | Financial Controller (Finance) |
-| supplier_rebates.NUMERIC_RANGE.rebate_amount | DATA_VALIDATION | rebate_amount | ERROR | Validity | rebate_amount must be within the permitted range. | Financial Controller (Finance) |
-| supplier_rebates.ALLOWED_VALUE.rebate_rate | DATA_VALIDATION | rebate_rate | ERROR | Validity | rebate_rate must be one of [0, 0.01, 0.02, 0.035]. | Financial Controller (Finance) |
-| supplier_rebates.PATTERN.period | DATA_VALIDATION | period | ERROR | Validity | period must match ^\d{4}-Q[1-4]$. | Financial Controller (Finance) |
-| supplier_rebates.REFERENTIAL_INTEGRITY.supplier_id | DATA_VALIDATION | supplier_id | ERROR | Consistency | supplier_id must exist in supplier_master.supplier_id. | Financial Controller (Finance) |
-| supplier_rebates.CALCULATION.rebate_amount | BUSINESS_RULE_VALIDATION | rebate_amount | ERROR | Accuracy | rebate_amount must equal qualifying_spend * rebate_rate. | Financial Controller (Finance) |
-| sales_transactions.REQUIRED_VALUE.sale_id | DATA_VALIDATION | sale_id | ERROR | Completeness | sale_id must not be blank. | Head of Sales (Sales) |
-| sales_transactions.REQUIRED_VALUE.sale_date | DATA_VALIDATION | sale_date | ERROR | Completeness | sale_date must not be blank. | Head of Sales (Sales) |
-| sales_transactions.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | Completeness | site_id must not be blank. | Head of Sales (Sales) |
-| sales_transactions.REQUIRED_VALUE.payment_method | DATA_VALIDATION | payment_method | ERROR | Completeness | payment_method must not be blank. | Head of Sales (Sales) |
-| sales_transactions.REQUIRED_VALUE.net_amount | DATA_VALIDATION | net_amount | ERROR | Completeness | net_amount must not be blank. | Head of Sales (Sales) |
-| sales_transactions.REQUIRED_VALUE.vat_amount | DATA_VALIDATION | vat_amount | ERROR | Completeness | vat_amount must not be blank. | Head of Sales (Sales) |
-| sales_transactions.REQUIRED_VALUE.total_amount | DATA_VALIDATION | total_amount | ERROR | Completeness | total_amount must not be blank. | Head of Sales (Sales) |
-| sales_transactions.UNIQUE.sale_id | DATA_VALIDATION | sale_id | ERROR | Uniqueness | sale_id must be unique. | Head of Sales (Sales) |
-| sales_transactions.DATA_TYPE.net_amount | DATA_VALIDATION | net_amount | ERROR | Validity | net_amount must be numeric. | Head of Sales (Sales) |
-| sales_transactions.NUMERIC_RANGE.net_amount | DATA_VALIDATION | net_amount | ERROR | Validity | net_amount must be within the permitted range. | Head of Sales (Sales) |
-| sales_transactions.DATA_TYPE.vat_amount | DATA_VALIDATION | vat_amount | ERROR | Validity | vat_amount must be numeric. | Head of Sales (Sales) |
-| sales_transactions.NUMERIC_RANGE.vat_amount | DATA_VALIDATION | vat_amount | ERROR | Validity | vat_amount must be within the permitted range. | Head of Sales (Sales) |
-| sales_transactions.DATA_TYPE.total_amount | DATA_VALIDATION | total_amount | ERROR | Validity | total_amount must be numeric. | Head of Sales (Sales) |
-| sales_transactions.NUMERIC_RANGE.total_amount | DATA_VALIDATION | total_amount | ERROR | Validity | total_amount must be within the permitted range. | Head of Sales (Sales) |
-| sales_transactions.VALID_DATE.sale_date | DATA_VALIDATION | sale_date | ERROR | Validity | sale_date must be a valid date. | Head of Sales (Sales) |
-| sales_transactions.ALLOWED_VALUE.payment_method | DATA_VALIDATION | payment_method | ERROR | Validity | payment_method must be one of ['CASH', 'CARD', 'CREDIT']. | Head of Sales (Sales) |
-| sales_transactions.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | Consistency | site_id must exist in site_master.site_id. | Head of Sales (Sales) |
-| sales_transactions.REFERENTIAL_INTEGRITY.customer_id | DATA_VALIDATION | customer_id | ERROR | Consistency | customer_id must exist in customer_master.customer_id. | Head of Sales (Sales) |
-| sales_transactions.CALCULATION.vat_amount | BUSINESS_RULE_VALIDATION | vat_amount | ERROR | Accuracy | vat_amount must equal net_amount * 0.15. | Head of Sales (Sales) |
-| sales_transactions.CALCULATION.total_amount | BUSINESS_RULE_VALIDATION | total_amount | ERROR | Accuracy | total_amount must equal net_amount + vat_amount. | Head of Sales (Sales) |
-| sales_lines.REQUIRED_VALUE.sale_id | DATA_VALIDATION | sale_id | ERROR | Completeness | sale_id must not be blank. | Head of Sales (Sales) |
-| sales_lines.REQUIRED_VALUE.product_id | DATA_VALIDATION | product_id | ERROR | Completeness | product_id must not be blank. | Head of Sales (Sales) |
-| sales_lines.REQUIRED_VALUE.quantity | DATA_VALIDATION | quantity | ERROR | Completeness | quantity must not be blank. | Head of Sales (Sales) |
-| sales_lines.REQUIRED_VALUE.unit_price | DATA_VALIDATION | unit_price | ERROR | Completeness | unit_price must not be blank. | Head of Sales (Sales) |
-| sales_lines.REQUIRED_VALUE.line_net | DATA_VALIDATION | line_net | ERROR | Completeness | line_net must not be blank. | Head of Sales (Sales) |
-| sales_lines.REQUIRED_VALUE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | Completeness | unit_cost must not be blank. | Head of Sales (Sales) |
-| sales_lines.UNIQUE.sale_id+product_id | DATA_VALIDATION | sale_id+product_id | ERROR | Uniqueness | sale_id + product_id must be unique. | Head of Sales (Sales) |
-| sales_lines.DATA_TYPE.quantity | DATA_VALIDATION | quantity | ERROR | Validity | quantity must be a whole number. | Head of Sales (Sales) |
-| sales_lines.NUMERIC_RANGE.quantity | DATA_VALIDATION | quantity | ERROR | Validity | quantity must be within the permitted range. | Head of Sales (Sales) |
-| sales_lines.DATA_TYPE.unit_price | DATA_VALIDATION | unit_price | ERROR | Validity | unit_price must be numeric. | Head of Sales (Sales) |
-| sales_lines.NUMERIC_RANGE.unit_price | DATA_VALIDATION | unit_price | ERROR | Validity | unit_price must be within the permitted range. | Head of Sales (Sales) |
-| sales_lines.DATA_TYPE.line_net | DATA_VALIDATION | line_net | ERROR | Validity | line_net must be numeric. | Head of Sales (Sales) |
-| sales_lines.NUMERIC_RANGE.line_net | DATA_VALIDATION | line_net | ERROR | Validity | line_net must be within the permitted range. | Head of Sales (Sales) |
-| sales_lines.DATA_TYPE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | Validity | unit_cost must be numeric. | Head of Sales (Sales) |
-| sales_lines.NUMERIC_RANGE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | Validity | unit_cost must be within the permitted range. | Head of Sales (Sales) |
-| sales_lines.REFERENTIAL_INTEGRITY.sale_id | DATA_VALIDATION | sale_id | ERROR | Consistency | sale_id must exist in sales_transactions.sale_id. | Head of Sales (Sales) |
-| sales_lines.REFERENTIAL_INTEGRITY.product_id | DATA_VALIDATION | product_id | ERROR | Consistency | product_id must exist in product_master.product_id. | Head of Sales (Sales) |
-| sales_lines.CALCULATION.line_net | BUSINESS_RULE_VALIDATION | line_net | ERROR | Accuracy | line_net must equal quantity * unit_price. | Head of Sales (Sales) |
-| inventory_movements.REQUIRED_VALUE.movement_id | DATA_VALIDATION | movement_id | ERROR | Completeness | movement_id must not be blank. | Warehouse Manager (Warehousing) |
-| inventory_movements.REQUIRED_VALUE.movement_date | DATA_VALIDATION | movement_date | ERROR | Completeness | movement_date must not be blank. | Warehouse Manager (Warehousing) |
-| inventory_movements.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | Completeness | site_id must not be blank. | Warehouse Manager (Warehousing) |
-| inventory_movements.REQUIRED_VALUE.product_id | DATA_VALIDATION | product_id | ERROR | Completeness | product_id must not be blank. | Warehouse Manager (Warehousing) |
-| inventory_movements.REQUIRED_VALUE.movement_type | DATA_VALIDATION | movement_type | ERROR | Completeness | movement_type must not be blank. | Warehouse Manager (Warehousing) |
-| inventory_movements.REQUIRED_VALUE.quantity | DATA_VALIDATION | quantity | ERROR | Completeness | quantity must not be blank. | Warehouse Manager (Warehousing) |
-| inventory_movements.REQUIRED_VALUE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | Completeness | unit_cost must not be blank. | Warehouse Manager (Warehousing) |
-| inventory_movements.REQUIRED_VALUE.source_document_id | DATA_VALIDATION | source_document_id | ERROR | Completeness | source_document_id must not be blank. | Warehouse Manager (Warehousing) |
-| inventory_movements.UNIQUE.movement_id | DATA_VALIDATION | movement_id | ERROR | Uniqueness | movement_id must be unique. | Warehouse Manager (Warehousing) |
-| inventory_movements.DATA_TYPE.quantity | DATA_VALIDATION | quantity | ERROR | Validity | quantity must be a whole number. | Warehouse Manager (Warehousing) |
-| inventory_movements.DATA_TYPE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | Validity | unit_cost must be numeric. | Warehouse Manager (Warehousing) |
-| inventory_movements.NUMERIC_RANGE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | Validity | unit_cost must be within the permitted range. | Warehouse Manager (Warehousing) |
-| inventory_movements.VALID_DATE.movement_date | DATA_VALIDATION | movement_date | ERROR | Validity | movement_date must be a valid date. | Warehouse Manager (Warehousing) |
-| inventory_movements.ALLOWED_VALUE.movement_type | DATA_VALIDATION | movement_type | ERROR | Validity | movement_type must be one of ['PURCHASE_RECEIPT', 'SALE', 'TRANSFER_IN', 'TRANSFER_OUT', 'ADJUSTMENT', 'WRITE_OFF', 'RETURN']. | Warehouse Manager (Warehousing) |
-| inventory_movements.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | Consistency | site_id must exist in site_master.site_id. | Warehouse Manager (Warehousing) |
-| inventory_movements.REFERENTIAL_INTEGRITY.product_id | DATA_VALIDATION | product_id | ERROR | Consistency | product_id must exist in product_master.product_id. | Warehouse Manager (Warehousing) |
-| operating_expenses.REQUIRED_VALUE.expense_id | DATA_VALIDATION | expense_id | ERROR | Completeness | expense_id must not be blank. | Financial Controller (Finance) |
-| operating_expenses.REQUIRED_VALUE.expense_date | DATA_VALIDATION | expense_date | ERROR | Completeness | expense_date must not be blank. | Financial Controller (Finance) |
-| operating_expenses.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | Completeness | site_id must not be blank. | Financial Controller (Finance) |
-| operating_expenses.REQUIRED_VALUE.expense_type | DATA_VALIDATION | expense_type | ERROR | Completeness | expense_type must not be blank. | Financial Controller (Finance) |
-| operating_expenses.REQUIRED_VALUE.amount | DATA_VALIDATION | amount | ERROR | Completeness | amount must not be blank. | Financial Controller (Finance) |
-| operating_expenses.UNIQUE.expense_id | DATA_VALIDATION | expense_id | ERROR | Uniqueness | expense_id must be unique. | Financial Controller (Finance) |
-| operating_expenses.DATA_TYPE.amount | DATA_VALIDATION | amount | ERROR | Validity | amount must be numeric. | Financial Controller (Finance) |
-| operating_expenses.NUMERIC_RANGE.amount | DATA_VALIDATION | amount | ERROR | Validity | amount must be within the permitted range. | Financial Controller (Finance) |
-| operating_expenses.VALID_DATE.expense_date | DATA_VALIDATION | expense_date | ERROR | Validity | expense_date must be a valid date. | Financial Controller (Finance) |
-| operating_expenses.ALLOWED_VALUE.expense_type | DATA_VALIDATION | expense_type | ERROR | Validity | expense_type must be one of ['RENT', 'UTILITY', 'CONNECTIVITY', 'FUEL', 'SECURITY', 'MAINTENANCE']. | Financial Controller (Finance) |
-| operating_expenses.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | Consistency | site_id must exist in site_master.site_id. | Financial Controller (Finance) |
-| general_ledger.REQUIRED_VALUE.journal_id | DATA_VALIDATION | journal_id | ERROR | Completeness | journal_id must not be blank. | Chief Financial Officer (Finance) |
-| general_ledger.REQUIRED_VALUE.posting_date | DATA_VALIDATION | posting_date | ERROR | Completeness | posting_date must not be blank. | Chief Financial Officer (Finance) |
-| general_ledger.REQUIRED_VALUE.source_document_id | DATA_VALIDATION | source_document_id | ERROR | Completeness | source_document_id must not be blank. | Chief Financial Officer (Finance) |
-| general_ledger.REQUIRED_VALUE.transaction_type | DATA_VALIDATION | transaction_type | ERROR | Completeness | transaction_type must not be blank. | Chief Financial Officer (Finance) |
-| general_ledger.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | Completeness | site_id must not be blank. | Chief Financial Officer (Finance) |
-| general_ledger.REQUIRED_VALUE.account_code | DATA_VALIDATION | account_code | ERROR | Completeness | account_code must not be blank. | Chief Financial Officer (Finance) |
-| general_ledger.DATA_TYPE.debit | DATA_VALIDATION | debit | ERROR | Validity | debit must be numeric. | Chief Financial Officer (Finance) |
-| general_ledger.NUMERIC_RANGE.debit | DATA_VALIDATION | debit | ERROR | Validity | debit must be within the permitted range. | Chief Financial Officer (Finance) |
-| general_ledger.DATA_TYPE.credit | DATA_VALIDATION | credit | ERROR | Validity | credit must be numeric. | Chief Financial Officer (Finance) |
-| general_ledger.NUMERIC_RANGE.credit | DATA_VALIDATION | credit | ERROR | Validity | credit must be within the permitted range. | Chief Financial Officer (Finance) |
-| general_ledger.VALID_DATE.posting_date | DATA_VALIDATION | posting_date | ERROR | Validity | posting_date must be a valid date. | Chief Financial Officer (Finance) |
-| general_ledger.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | Consistency | site_id must exist in site_master.site_id. | Chief Financial Officer (Finance) |
-| general_ledger.REFERENTIAL_INTEGRITY.account_code | DATA_VALIDATION | account_code | ERROR | Consistency | account_code must exist in chart_of_accounts.csv.account_code. | Chief Financial Officer (Finance) |
-| general_ledger.REFERENTIAL_INTEGRITY.transaction_type | DATA_VALIDATION | transaction_type | WARNING | Consistency | transaction_type must exist in posting_rules.csv.transaction_type. | Chief Financial Officer (Finance) |
-| general_ledger.JOURNAL_BALANCE.journal_id | BUSINESS_RULE_VALIDATION | journal_id | ERROR | Accuracy | Debits must equal credits per journal_id. | Chief Financial Officer (Finance) |
-| fixed_assets_erp.REQUIRED_VALUE.asset_id | DATA_VALIDATION | asset_id | ERROR | Completeness | asset_id must not be blank. | Financial Controller (Finance) |
-| fixed_assets_erp.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | Completeness | site_id must not be blank. | Financial Controller (Finance) |
-| fixed_assets_erp.REQUIRED_VALUE.asset_class | DATA_VALIDATION | asset_class | ERROR | Completeness | asset_class must not be blank. | Financial Controller (Finance) |
-| fixed_assets_erp.REQUIRED_VALUE.acquisition_date | DATA_VALIDATION | acquisition_date | ERROR | Completeness | acquisition_date must not be blank. | Financial Controller (Finance) |
-| fixed_assets_erp.REQUIRED_VALUE.acquisition_cost | DATA_VALIDATION | acquisition_cost | ERROR | Completeness | acquisition_cost must not be blank. | Financial Controller (Finance) |
-| fixed_assets_erp.REQUIRED_VALUE.useful_life_years | DATA_VALIDATION | useful_life_years | ERROR | Completeness | useful_life_years must not be blank. | Financial Controller (Finance) |
-| fixed_assets_erp.REQUIRED_VALUE.status | DATA_VALIDATION | status | ERROR | Completeness | status must not be blank. | Financial Controller (Finance) |
-| fixed_assets_erp.UNIQUE.asset_id | DATA_VALIDATION | asset_id | ERROR | Uniqueness | asset_id must be unique. | Financial Controller (Finance) |
-| fixed_assets_erp.DATA_TYPE.acquisition_cost | DATA_VALIDATION | acquisition_cost | ERROR | Validity | acquisition_cost must be numeric. | Financial Controller (Finance) |
-| fixed_assets_erp.NUMERIC_RANGE.acquisition_cost | DATA_VALIDATION | acquisition_cost | ERROR | Validity | acquisition_cost must be within the permitted range. | Financial Controller (Finance) |
-| fixed_assets_erp.DATA_TYPE.useful_life_years | DATA_VALIDATION | useful_life_years | ERROR | Validity | useful_life_years must be a whole number. | Financial Controller (Finance) |
-| fixed_assets_erp.NUMERIC_RANGE.useful_life_years | DATA_VALIDATION | useful_life_years | ERROR | Validity | useful_life_years must be within the permitted range. | Financial Controller (Finance) |
-| fixed_assets_erp.DATA_TYPE.monthly_depreciation | DATA_VALIDATION | monthly_depreciation | ERROR | Validity | monthly_depreciation must be numeric. | Financial Controller (Finance) |
-| fixed_assets_erp.NUMERIC_RANGE.monthly_depreciation | DATA_VALIDATION | monthly_depreciation | ERROR | Validity | monthly_depreciation must be within the permitted range. | Financial Controller (Finance) |
-| fixed_assets_erp.DATA_TYPE.accumulated_depreciation | DATA_VALIDATION | accumulated_depreciation | ERROR | Validity | accumulated_depreciation must be numeric. | Financial Controller (Finance) |
-| fixed_assets_erp.NUMERIC_RANGE.accumulated_depreciation | DATA_VALIDATION | accumulated_depreciation | ERROR | Validity | accumulated_depreciation must be within the permitted range. | Financial Controller (Finance) |
-| fixed_assets_erp.DATA_TYPE.net_book_value | DATA_VALIDATION | net_book_value | ERROR | Validity | net_book_value must be numeric. | Financial Controller (Finance) |
-| fixed_assets_erp.NUMERIC_RANGE.net_book_value | DATA_VALIDATION | net_book_value | ERROR | Validity | net_book_value must be within the permitted range. | Financial Controller (Finance) |
-| fixed_assets_erp.VALID_DATE.acquisition_date | DATA_VALIDATION | acquisition_date | ERROR | Validity | acquisition_date must be a valid date. | Financial Controller (Finance) |
-| fixed_assets_erp.ALLOWED_VALUE.asset_class | DATA_VALIDATION | asset_class | ERROR | Validity | asset_class must be one of ['Vehicles', 'Computer Hardware', 'Servers and Network Equipment', 'Machinery and Equipment', 'Furniture and Fittings']. | Financial Controller (Finance) |
-| fixed_assets_erp.ALLOWED_VALUE.status | DATA_VALIDATION | status | ERROR | Validity | status must be one of ['ACTIVE', 'DISPOSED', 'WRITTEN_OFF']. | Financial Controller (Finance) |
-| fixed_assets_erp.PATTERN.asset_id | DATA_VALIDATION | asset_id | ERROR | Validity | asset_id must match ^AST\d{6}$. | Financial Controller (Finance) |
-| fixed_assets_erp.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | Consistency | site_id must exist in site_master.site_id. | Financial Controller (Finance) |
-| fixed_assets_erp.CALCULATION.monthly_depreciation | BUSINESS_RULE_VALIDATION | monthly_depreciation | ERROR | Accuracy | monthly_depreciation must equal acquisition_cost / (useful_life_years * 12). | Financial Controller (Finance) |
-| fixed_assets_erp.CALCULATION.net_book_value | BUSINESS_RULE_VALIDATION | net_book_value | ERROR | Accuracy | net_book_value must equal acquisition_cost - accumulated_depreciation. | Financial Controller (Finance) |
-| fixed_assets_erp.DEPRECIATION_NOT_ABOVE_COST.accumulated_depreciation | BUSINESS_RULE_VALIDATION | accumulated_depreciation | ERROR | Accuracy | accumulated_depreciation must be <= acquisition_cost. | Financial Controller (Finance) |
-| branch_local_assets.REQUIRED_VALUE.local_asset_id | DATA_VALIDATION | local_asset_id | ERROR | Completeness | local_asset_id must not be blank. | Head of Operations (Operations) |
-| branch_local_assets.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | Completeness | site_id must not be blank. | Head of Operations (Operations) |
-| branch_local_assets.REQUIRED_VALUE.department_id | DATA_VALIDATION | department_id | ERROR | Completeness | department_id must not be blank. | Head of Operations (Operations) |
-| branch_local_assets.REQUIRED_VALUE.description | DATA_VALIDATION | description | ERROR | Completeness | description must not be blank. | Head of Operations (Operations) |
-| branch_local_assets.UNIQUE.local_asset_id | DATA_VALIDATION | local_asset_id | ERROR | Uniqueness | local_asset_id must be unique. | Head of Operations (Operations) |
-| branch_local_assets.VALID_DATE.recorded_date | DATA_VALIDATION | recorded_date | ERROR | Validity | recorded_date must be a valid date. | Head of Operations (Operations) |
-| branch_local_assets.ALLOWED_VALUE.condition | DATA_VALIDATION | condition | ERROR | Validity | condition must be one of ['Good', 'Fair', 'Needs Repair']. | Head of Operations (Operations) |
-| branch_local_assets.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | Consistency | site_id must exist in site_master.site_id. | Head of Operations (Operations) |
-| branch_local_assets.REFERENTIAL_INTEGRITY.department_id | DATA_VALIDATION | department_id | ERROR | Consistency | department_id must exist in department_master.department_id. | Head of Operations (Operations) |
-| branch_cashup.REQUIRED_VALUE.shift_id | DATA_VALIDATION | shift_id | ERROR | Completeness | shift_id must not be blank. | Head of Operations (Operations) |
-| branch_cashup.REQUIRED_VALUE.site_code | DATA_VALIDATION | site_code | ERROR | Completeness | site_code must not be blank. | Head of Operations (Operations) |
-| branch_cashup.REQUIRED_VALUE.business_date | DATA_VALIDATION | business_date | ERROR | Completeness | business_date must not be blank. | Head of Operations (Operations) |
-| branch_cashup.REQUIRED_VALUE.opening_float | DATA_VALIDATION | opening_float | ERROR | Completeness | opening_float must not be blank. | Head of Operations (Operations) |
-| branch_cashup.REQUIRED_VALUE.cash_sales | DATA_VALIDATION | cash_sales | ERROR | Completeness | cash_sales must not be blank. | Head of Operations (Operations) |
-| branch_cashup.REQUIRED_VALUE.card_sales | DATA_VALIDATION | card_sales | ERROR | Completeness | card_sales must not be blank. | Head of Operations (Operations) |
-| branch_cashup.REQUIRED_VALUE.account_sales | DATA_VALIDATION | account_sales | ERROR | Completeness | account_sales must not be blank. | Head of Operations (Operations) |
-| branch_cashup.REQUIRED_VALUE.total_sales | DATA_VALIDATION | total_sales | ERROR | Completeness | total_sales must not be blank. | Head of Operations (Operations) |
-| branch_cashup.REQUIRED_VALUE.cash_removed | DATA_VALIDATION | cash_removed | ERROR | Completeness | cash_removed must not be blank. | Head of Operations (Operations) |
-| branch_cashup.REQUIRED_VALUE.expected_closing_cash | DATA_VALIDATION | expected_closing_cash | ERROR | Completeness | expected_closing_cash must not be blank. | Head of Operations (Operations) |
-| branch_cashup.REQUIRED_VALUE.actual_closing_cash | DATA_VALIDATION | actual_closing_cash | ERROR | Completeness | actual_closing_cash must not be blank. | Head of Operations (Operations) |
-| branch_cashup.REQUIRED_VALUE.variance | DATA_VALIDATION | variance | ERROR | Completeness | variance must not be blank. | Head of Operations (Operations) |
-| branch_cashup.DATA_TYPE.opening_float | DATA_VALIDATION | opening_float | ERROR | Validity | opening_float must be numeric. | Head of Operations (Operations) |
-| branch_cashup.NUMERIC_RANGE.opening_float | DATA_VALIDATION | opening_float | ERROR | Validity | opening_float must be within the permitted range. | Head of Operations (Operations) |
-| branch_cashup.DATA_TYPE.cash_sales | DATA_VALIDATION | cash_sales | ERROR | Validity | cash_sales must be numeric. | Head of Operations (Operations) |
-| branch_cashup.NUMERIC_RANGE.cash_sales | DATA_VALIDATION | cash_sales | ERROR | Validity | cash_sales must be within the permitted range. | Head of Operations (Operations) |
-| branch_cashup.DATA_TYPE.card_sales | DATA_VALIDATION | card_sales | ERROR | Validity | card_sales must be numeric. | Head of Operations (Operations) |
-| branch_cashup.NUMERIC_RANGE.card_sales | DATA_VALIDATION | card_sales | ERROR | Validity | card_sales must be within the permitted range. | Head of Operations (Operations) |
-| branch_cashup.DATA_TYPE.account_sales | DATA_VALIDATION | account_sales | ERROR | Validity | account_sales must be numeric. | Head of Operations (Operations) |
-| branch_cashup.NUMERIC_RANGE.account_sales | DATA_VALIDATION | account_sales | ERROR | Validity | account_sales must be within the permitted range. | Head of Operations (Operations) |
-| branch_cashup.DATA_TYPE.total_sales | DATA_VALIDATION | total_sales | ERROR | Validity | total_sales must be numeric. | Head of Operations (Operations) |
-| branch_cashup.NUMERIC_RANGE.total_sales | DATA_VALIDATION | total_sales | ERROR | Validity | total_sales must be within the permitted range. | Head of Operations (Operations) |
-| branch_cashup.DATA_TYPE.internal_expenses | DATA_VALIDATION | internal_expenses | ERROR | Validity | internal_expenses must be numeric. | Head of Operations (Operations) |
-| branch_cashup.NUMERIC_RANGE.internal_expenses | DATA_VALIDATION | internal_expenses | ERROR | Validity | internal_expenses must be within the permitted range. | Head of Operations (Operations) |
-| branch_cashup.DATA_TYPE.cash_removed | DATA_VALIDATION | cash_removed | ERROR | Validity | cash_removed must be numeric. | Head of Operations (Operations) |
-| branch_cashup.NUMERIC_RANGE.cash_removed | DATA_VALIDATION | cash_removed | ERROR | Validity | cash_removed must be within the permitted range. | Head of Operations (Operations) |
-| branch_cashup.DATA_TYPE.expected_closing_cash | DATA_VALIDATION | expected_closing_cash | ERROR | Validity | expected_closing_cash must be numeric. | Head of Operations (Operations) |
-| branch_cashup.DATA_TYPE.actual_closing_cash | DATA_VALIDATION | actual_closing_cash | ERROR | Validity | actual_closing_cash must be numeric. | Head of Operations (Operations) |
-| branch_cashup.NUMERIC_RANGE.actual_closing_cash | DATA_VALIDATION | actual_closing_cash | ERROR | Validity | actual_closing_cash must be within the permitted range. | Head of Operations (Operations) |
-| branch_cashup.DATA_TYPE.variance | DATA_VALIDATION | variance | ERROR | Validity | variance must be numeric. | Head of Operations (Operations) |
-| branch_cashup.VALID_DATE.business_date | DATA_VALIDATION | business_date | ERROR | Validity | business_date must be a valid date. | Head of Operations (Operations) |
-| branch_cashup.ALLOWED_VALUE.manager_approval | DATA_VALIDATION | manager_approval | ERROR | Validity | manager_approval must be one of ['Approved']. | Head of Operations (Operations) |
-| branch_cashup.PATTERN.shift_id | DATA_VALIDATION | shift_id | ERROR | Validity | shift_id must match ^SHIFT-\d{6}$. | Head of Operations (Operations) |
-| branch_cashup.PATTERN.site_code | DATA_VALIDATION | site_code | ERROR | Validity | site_code must match ^BR\d{3}$. | Head of Operations (Operations) |
-| branch_cashup.REFERENTIAL_INTEGRITY.site_code | DATA_VALIDATION | site_code | ERROR | Consistency | site_code must exist in site_master.site_id. | Head of Operations (Operations) |
-| branch_cashup.CASHUP_TOTAL_SALES.total_sales | BUSINESS_RULE_VALIDATION | total_sales | ERROR | Accuracy | total_sales must equal cash_sales + card_sales + account_sales. | Head of Operations (Operations) |
-| branch_cashup.CASHUP_EXPECTED_CLOSING.expected_closing_cash | BUSINESS_RULE_VALIDATION | expected_closing_cash | ERROR | Accuracy | expected_closing_cash must equal opening_float + cash_sales - internal_expenses - cash_removed. | Head of Operations (Operations) |
-| branch_cashup.CASHUP_VARIANCE.variance | BUSINESS_RULE_VALIDATION | variance | ERROR | Accuracy | variance must equal actual_closing_cash - expected_closing_cash. | Head of Operations (Operations) |
-| branch_cashup.CASHUP_FILENAME_SITE.site_code | BUSINESS_RULE_VALIDATION | site_code | ERROR | Accuracy | site_code must be == file_site_code. | Head of Operations (Operations) |
-| branch_cashup.CASHUP_FILENAME_SHIFT.shift_id | BUSINESS_RULE_VALIDATION | shift_id | ERROR | Accuracy | shift_id must be == file_shift_id. | Head of Operations (Operations) |
+| site_master.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | COMPLETENESS | site_id must not be blank. | Head of Operations (Operations) |
+| site_master.REQUIRED_VALUE.site_name | DATA_VALIDATION | site_name | ERROR | COMPLETENESS | site_name must not be blank. | Head of Operations (Operations) |
+| site_master.REQUIRED_VALUE.site_type | DATA_VALIDATION | site_type | ERROR | COMPLETENESS | site_type must not be blank. | Head of Operations (Operations) |
+| site_master.UNIQUE.site_id | DATA_VALIDATION | site_id | ERROR | DUPLICATE | site_id must be unique. | Head of Operations (Operations) |
+| site_master.ALLOWED_VALUE.site_type | DATA_VALIDATION | site_type | ERROR | ACCURACY | site_type must be one of ['HEAD_OFFICE', 'DISTRIBUTION_CENTRE', 'BRANCH']. | Head of Operations (Operations) |
+| site_master.PATTERN.site_id | DATA_VALIDATION | site_id | ERROR | ACCURACY | site_id must match ^(HO\|DC\|BR)\d{3}$. | Head of Operations (Operations) |
+| department_master.REQUIRED_VALUE.department_id | DATA_VALIDATION | department_id | ERROR | COMPLETENESS | department_id must not be blank. | Head of Human Resources (Human Resources) |
+| department_master.REQUIRED_VALUE.department_name | DATA_VALIDATION | department_name | ERROR | COMPLETENESS | department_name must not be blank. | Head of Human Resources (Human Resources) |
+| department_master.UNIQUE.department_id | DATA_VALIDATION | department_id | ERROR | DUPLICATE | department_id must be unique. | Head of Human Resources (Human Resources) |
+| department_master.PATTERN.department_id | DATA_VALIDATION | department_id | ERROR | ACCURACY | department_id must match ^D\d{3}$. | Head of Human Resources (Human Resources) |
+| product_master.REQUIRED_VALUE.product_id | DATA_VALIDATION | product_id | ERROR | COMPLETENESS | product_id must not be blank. | Procurement Manager (Procurement) |
+| product_master.REQUIRED_VALUE.product_name | DATA_VALIDATION | product_name | ERROR | COMPLETENESS | product_name must not be blank. | Procurement Manager (Procurement) |
+| product_master.REQUIRED_VALUE.category | DATA_VALIDATION | category | ERROR | COMPLETENESS | category must not be blank. | Procurement Manager (Procurement) |
+| product_master.REQUIRED_VALUE.standard_cost | DATA_VALIDATION | standard_cost | ERROR | COMPLETENESS | standard_cost must not be blank. | Procurement Manager (Procurement) |
+| product_master.REQUIRED_VALUE.selling_price | DATA_VALIDATION | selling_price | ERROR | COMPLETENESS | selling_price must not be blank. | Procurement Manager (Procurement) |
+| product_master.UNIQUE.product_id | DATA_VALIDATION | product_id | ERROR | DUPLICATE | product_id must be unique. | Procurement Manager (Procurement) |
+| product_master.DATA_TYPE.standard_cost | DATA_VALIDATION | standard_cost | ERROR | SCHEMA | standard_cost must be numeric. | Procurement Manager (Procurement) |
+| product_master.NUMERIC_RANGE.standard_cost | DATA_VALIDATION | standard_cost | ERROR | ACCURACY | standard_cost must be within the permitted range. | Procurement Manager (Procurement) |
+| product_master.DATA_TYPE.selling_price | DATA_VALIDATION | selling_price | ERROR | SCHEMA | selling_price must be numeric. | Procurement Manager (Procurement) |
+| product_master.NUMERIC_RANGE.selling_price | DATA_VALIDATION | selling_price | ERROR | ACCURACY | selling_price must be within the permitted range. | Procurement Manager (Procurement) |
+| product_master.ALLOWED_VALUE.category | DATA_VALIDATION | category | ERROR | ACCURACY | category must be one of ['Grocery', 'Beverages', 'Household', 'Personal Care', 'Stationery', 'Specialized Equipment', 'Local Specialty']. | Procurement Manager (Procurement) |
+| product_master.ALLOWED_VALUE.dc_stocked | DATA_VALIDATION | dc_stocked | ERROR | ACCURACY | dc_stocked must be one of [True, False]. | Procurement Manager (Procurement) |
+| product_master.PATTERN.product_id | DATA_VALIDATION | product_id | ERROR | ACCURACY | product_id must match ^P\d{5}$. | Procurement Manager (Procurement) |
+| product_master.SELLING_PRICE_ABOVE_COST.selling_price | BUSINESS_RULE_VALIDATION | selling_price | WARNING | ACCURACY | selling_price must be >= standard_cost. | Procurement Manager (Procurement) |
+| supplier_master.REQUIRED_VALUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | COMPLETENESS | supplier_id must not be blank. | Procurement Manager (Procurement) |
+| supplier_master.REQUIRED_VALUE.supplier_name | DATA_VALIDATION | supplier_name | ERROR | COMPLETENESS | supplier_name must not be blank. | Procurement Manager (Procurement) |
+| supplier_master.REQUIRED_VALUE.minimum_order_value_nad | DATA_VALIDATION | minimum_order_value_nad | ERROR | COMPLETENESS | minimum_order_value_nad must not be blank. | Procurement Manager (Procurement) |
+| supplier_master.UNIQUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | DUPLICATE | supplier_id must be unique. | Procurement Manager (Procurement) |
+| supplier_master.DATA_TYPE.minimum_order_value_nad | DATA_VALIDATION | minimum_order_value_nad | ERROR | SCHEMA | minimum_order_value_nad must be numeric. | Procurement Manager (Procurement) |
+| supplier_master.NUMERIC_RANGE.minimum_order_value_nad | DATA_VALIDATION | minimum_order_value_nad | ERROR | ACCURACY | minimum_order_value_nad must be within the permitted range. | Procurement Manager (Procurement) |
+| supplier_master.DATA_TYPE.rebate_rate | DATA_VALIDATION | rebate_rate | ERROR | SCHEMA | rebate_rate must be numeric. | Procurement Manager (Procurement) |
+| supplier_master.NUMERIC_RANGE.rebate_rate | DATA_VALIDATION | rebate_rate | ERROR | ACCURACY | rebate_rate must be within the permitted range. | Procurement Manager (Procurement) |
+| supplier_master.DATA_TYPE.payment_terms_days | DATA_VALIDATION | payment_terms_days | ERROR | SCHEMA | payment_terms_days must be a whole number. | Procurement Manager (Procurement) |
+| supplier_master.NUMERIC_RANGE.payment_terms_days | DATA_VALIDATION | payment_terms_days | ERROR | ACCURACY | payment_terms_days must be within the permitted range. | Procurement Manager (Procurement) |
+| supplier_master.PATTERN.supplier_id | DATA_VALIDATION | supplier_id | ERROR | ACCURACY | supplier_id must match ^SUP\d{4}$. | Procurement Manager (Procurement) |
+| product_supplier.REQUIRED_VALUE.product_id | DATA_VALIDATION | product_id | ERROR | COMPLETENESS | product_id must not be blank. | Procurement Manager (Procurement) |
+| product_supplier.REQUIRED_VALUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | COMPLETENESS | supplier_id must not be blank. | Procurement Manager (Procurement) |
+| product_supplier.REQUIRED_VALUE.supplier_unit_cost | DATA_VALIDATION | supplier_unit_cost | ERROR | COMPLETENESS | supplier_unit_cost must not be blank. | Procurement Manager (Procurement) |
+| product_supplier.UNIQUE.product_id+supplier_id | DATA_VALIDATION | product_id+supplier_id | ERROR | DUPLICATE | product_id + supplier_id must be unique. | Procurement Manager (Procurement) |
+| product_supplier.DATA_TYPE.supplier_unit_cost | DATA_VALIDATION | supplier_unit_cost | ERROR | SCHEMA | supplier_unit_cost must be numeric. | Procurement Manager (Procurement) |
+| product_supplier.NUMERIC_RANGE.supplier_unit_cost | DATA_VALIDATION | supplier_unit_cost | ERROR | ACCURACY | supplier_unit_cost must be within the permitted range. | Procurement Manager (Procurement) |
+| product_supplier.REFERENTIAL_INTEGRITY.product_id | DATA_VALIDATION | product_id | ERROR | CONSISTENCY | product_id must exist in product_master.product_id. | Procurement Manager (Procurement) |
+| product_supplier.REFERENTIAL_INTEGRITY.supplier_id | DATA_VALIDATION | supplier_id | ERROR | CONSISTENCY | supplier_id must exist in supplier_master.supplier_id. | Procurement Manager (Procurement) |
+| customer_master.REQUIRED_VALUE.customer_id | DATA_VALIDATION | customer_id | ERROR | COMPLETENESS | customer_id must not be blank. | Head of Sales (Sales) |
+| customer_master.REQUIRED_VALUE.customer_name | DATA_VALIDATION | customer_name | ERROR | COMPLETENESS | customer_name must not be blank. | Head of Sales (Sales) |
+| customer_master.REQUIRED_VALUE.customer_type | DATA_VALIDATION | customer_type | ERROR | COMPLETENESS | customer_type must not be blank. | Head of Sales (Sales) |
+| customer_master.UNIQUE.customer_id | DATA_VALIDATION | customer_id | ERROR | DUPLICATE | customer_id must be unique. | Head of Sales (Sales) |
+| customer_master.DATA_TYPE.credit_limit | DATA_VALIDATION | credit_limit | ERROR | SCHEMA | credit_limit must be numeric. | Head of Sales (Sales) |
+| customer_master.NUMERIC_RANGE.credit_limit | DATA_VALIDATION | credit_limit | ERROR | ACCURACY | credit_limit must be within the permitted range. | Head of Sales (Sales) |
+| customer_master.ALLOWED_VALUE.customer_type | DATA_VALIDATION | customer_type | ERROR | ACCURACY | customer_type must be one of ['RETAIL', 'BUSINESS']. | Head of Sales (Sales) |
+| customer_master.PATTERN.customer_id | DATA_VALIDATION | customer_id | ERROR | ACCURACY | customer_id must match ^CUST\d{5}$. | Head of Sales (Sales) |
+| purchase_orders.REQUIRED_VALUE.po_id | DATA_VALIDATION | po_id | ERROR | COMPLETENESS | po_id must not be blank. | Procurement Manager (Procurement) |
+| purchase_orders.REQUIRED_VALUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | COMPLETENESS | supplier_id must not be blank. | Procurement Manager (Procurement) |
+| purchase_orders.REQUIRED_VALUE.po_date | DATA_VALIDATION | po_date | ERROR | COMPLETENESS | po_date must not be blank. | Procurement Manager (Procurement) |
+| purchase_orders.REQUIRED_VALUE.delivery_site_id | DATA_VALIDATION | delivery_site_id | ERROR | COMPLETENESS | delivery_site_id must not be blank. | Procurement Manager (Procurement) |
+| purchase_orders.REQUIRED_VALUE.po_value | DATA_VALIDATION | po_value | ERROR | COMPLETENESS | po_value must not be blank. | Procurement Manager (Procurement) |
+| purchase_orders.REQUIRED_VALUE.status | DATA_VALIDATION | status | ERROR | COMPLETENESS | status must not be blank. | Procurement Manager (Procurement) |
+| purchase_orders.UNIQUE.po_id | DATA_VALIDATION | po_id | ERROR | DUPLICATE | po_id must be unique. | Procurement Manager (Procurement) |
+| purchase_orders.DATA_TYPE.po_value | DATA_VALIDATION | po_value | ERROR | SCHEMA | po_value must be numeric. | Procurement Manager (Procurement) |
+| purchase_orders.NUMERIC_RANGE.po_value | DATA_VALIDATION | po_value | ERROR | ACCURACY | po_value must be within the permitted range. | Procurement Manager (Procurement) |
+| purchase_orders.VALID_DATE.po_date | DATA_VALIDATION | po_date | ERROR | ACCURACY | po_date must be a valid date. | Procurement Manager (Procurement) |
+| purchase_orders.ALLOWED_VALUE.status | DATA_VALIDATION | status | ERROR | ACCURACY | status must be one of ['DRAFT', 'APPROVED', 'RECEIVED', 'CLOSED', 'CANCELLED']. | Procurement Manager (Procurement) |
+| purchase_orders.REFERENTIAL_INTEGRITY.supplier_id | DATA_VALIDATION | supplier_id | ERROR | CONSISTENCY | supplier_id must exist in supplier_master.supplier_id. | Procurement Manager (Procurement) |
+| purchase_orders.REFERENTIAL_INTEGRITY.delivery_site_id | DATA_VALIDATION | delivery_site_id | ERROR | CONSISTENCY | delivery_site_id must exist in site_master.site_id. | Procurement Manager (Procurement) |
+| purchase_orders.SUPPLIER_MINIMUM_ORDER_VALUE.po_value | BUSINESS_RULE_VALIDATION | po_value | ERROR | ACCURACY | po_value must be >= supplier_master.minimum_order_value_nad. | Procurement Manager (Procurement) |
+| purchase_order_lines.REQUIRED_VALUE.po_id | DATA_VALIDATION | po_id | ERROR | COMPLETENESS | po_id must not be blank. | Procurement Manager (Procurement) |
+| purchase_order_lines.REQUIRED_VALUE.product_id | DATA_VALIDATION | product_id | ERROR | COMPLETENESS | product_id must not be blank. | Procurement Manager (Procurement) |
+| purchase_order_lines.REQUIRED_VALUE.quantity | DATA_VALIDATION | quantity | ERROR | COMPLETENESS | quantity must not be blank. | Procurement Manager (Procurement) |
+| purchase_order_lines.REQUIRED_VALUE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | COMPLETENESS | unit_cost must not be blank. | Procurement Manager (Procurement) |
+| purchase_order_lines.REQUIRED_VALUE.line_value | DATA_VALIDATION | line_value | ERROR | COMPLETENESS | line_value must not be blank. | Procurement Manager (Procurement) |
+| purchase_order_lines.UNIQUE.po_id+product_id | DATA_VALIDATION | po_id+product_id | ERROR | DUPLICATE | po_id + product_id must be unique. | Procurement Manager (Procurement) |
+| purchase_order_lines.DATA_TYPE.quantity | DATA_VALIDATION | quantity | ERROR | SCHEMA | quantity must be a whole number. | Procurement Manager (Procurement) |
+| purchase_order_lines.NUMERIC_RANGE.quantity | DATA_VALIDATION | quantity | ERROR | ACCURACY | quantity must be within the permitted range. | Procurement Manager (Procurement) |
+| purchase_order_lines.DATA_TYPE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | SCHEMA | unit_cost must be numeric. | Procurement Manager (Procurement) |
+| purchase_order_lines.NUMERIC_RANGE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | ACCURACY | unit_cost must be within the permitted range. | Procurement Manager (Procurement) |
+| purchase_order_lines.DATA_TYPE.line_value | DATA_VALIDATION | line_value | ERROR | SCHEMA | line_value must be numeric. | Procurement Manager (Procurement) |
+| purchase_order_lines.NUMERIC_RANGE.line_value | DATA_VALIDATION | line_value | ERROR | ACCURACY | line_value must be within the permitted range. | Procurement Manager (Procurement) |
+| purchase_order_lines.REFERENTIAL_INTEGRITY.po_id | DATA_VALIDATION | po_id | ERROR | CONSISTENCY | po_id must exist in purchase_orders.po_id. | Procurement Manager (Procurement) |
+| purchase_order_lines.REFERENTIAL_INTEGRITY.product_id | DATA_VALIDATION | product_id | ERROR | CONSISTENCY | product_id must exist in product_master.product_id. | Procurement Manager (Procurement) |
+| purchase_order_lines.CALCULATION.line_value | BUSINESS_RULE_VALIDATION | line_value | ERROR | ACCURACY | line_value must equal quantity * unit_cost. | Procurement Manager (Procurement) |
+| goods_receipts.REQUIRED_VALUE.grn_id | DATA_VALIDATION | grn_id | ERROR | COMPLETENESS | grn_id must not be blank. | Warehouse Manager (Warehousing) |
+| goods_receipts.REQUIRED_VALUE.po_id | DATA_VALIDATION | po_id | ERROR | COMPLETENESS | po_id must not be blank. | Warehouse Manager (Warehousing) |
+| goods_receipts.REQUIRED_VALUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | COMPLETENESS | supplier_id must not be blank. | Warehouse Manager (Warehousing) |
+| goods_receipts.REQUIRED_VALUE.receipt_date | DATA_VALIDATION | receipt_date | ERROR | COMPLETENESS | receipt_date must not be blank. | Warehouse Manager (Warehousing) |
+| goods_receipts.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | COMPLETENESS | site_id must not be blank. | Warehouse Manager (Warehousing) |
+| goods_receipts.UNIQUE.grn_id | DATA_VALIDATION | grn_id | ERROR | DUPLICATE | grn_id must be unique. | Warehouse Manager (Warehousing) |
+| goods_receipts.VALID_DATE.receipt_date | DATA_VALIDATION | receipt_date | ERROR | ACCURACY | receipt_date must be a valid date. | Warehouse Manager (Warehousing) |
+| goods_receipts.REFERENTIAL_INTEGRITY.po_id | DATA_VALIDATION | po_id | ERROR | CONSISTENCY | po_id must exist in purchase_orders.po_id. | Warehouse Manager (Warehousing) |
+| goods_receipts.REFERENTIAL_INTEGRITY.supplier_id | DATA_VALIDATION | supplier_id | ERROR | CONSISTENCY | supplier_id must exist in supplier_master.supplier_id. | Warehouse Manager (Warehousing) |
+| goods_receipts.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | CONSISTENCY | site_id must exist in site_master.site_id. | Warehouse Manager (Warehousing) |
+| supplier_invoices.REQUIRED_VALUE.invoice_id | DATA_VALIDATION | invoice_id | ERROR | COMPLETENESS | invoice_id must not be blank. | Financial Controller (Finance) |
+| supplier_invoices.REQUIRED_VALUE.po_id | DATA_VALIDATION | po_id | ERROR | COMPLETENESS | po_id must not be blank. | Financial Controller (Finance) |
+| supplier_invoices.REQUIRED_VALUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | COMPLETENESS | supplier_id must not be blank. | Financial Controller (Finance) |
+| supplier_invoices.REQUIRED_VALUE.invoice_date | DATA_VALIDATION | invoice_date | ERROR | COMPLETENESS | invoice_date must not be blank. | Financial Controller (Finance) |
+| supplier_invoices.REQUIRED_VALUE.net_amount | DATA_VALIDATION | net_amount | ERROR | COMPLETENESS | net_amount must not be blank. | Financial Controller (Finance) |
+| supplier_invoices.REQUIRED_VALUE.vat_amount | DATA_VALIDATION | vat_amount | ERROR | COMPLETENESS | vat_amount must not be blank. | Financial Controller (Finance) |
+| supplier_invoices.REQUIRED_VALUE.total_amount | DATA_VALIDATION | total_amount | ERROR | COMPLETENESS | total_amount must not be blank. | Financial Controller (Finance) |
+| supplier_invoices.REQUIRED_VALUE.status | DATA_VALIDATION | status | ERROR | COMPLETENESS | status must not be blank. | Financial Controller (Finance) |
+| supplier_invoices.UNIQUE.invoice_id | DATA_VALIDATION | invoice_id | ERROR | DUPLICATE | invoice_id must be unique. | Financial Controller (Finance) |
+| supplier_invoices.DATA_TYPE.net_amount | DATA_VALIDATION | net_amount | ERROR | SCHEMA | net_amount must be numeric. | Financial Controller (Finance) |
+| supplier_invoices.NUMERIC_RANGE.net_amount | DATA_VALIDATION | net_amount | ERROR | ACCURACY | net_amount must be within the permitted range. | Financial Controller (Finance) |
+| supplier_invoices.DATA_TYPE.vat_amount | DATA_VALIDATION | vat_amount | ERROR | SCHEMA | vat_amount must be numeric. | Financial Controller (Finance) |
+| supplier_invoices.NUMERIC_RANGE.vat_amount | DATA_VALIDATION | vat_amount | ERROR | ACCURACY | vat_amount must be within the permitted range. | Financial Controller (Finance) |
+| supplier_invoices.DATA_TYPE.total_amount | DATA_VALIDATION | total_amount | ERROR | SCHEMA | total_amount must be numeric. | Financial Controller (Finance) |
+| supplier_invoices.NUMERIC_RANGE.total_amount | DATA_VALIDATION | total_amount | ERROR | ACCURACY | total_amount must be within the permitted range. | Financial Controller (Finance) |
+| supplier_invoices.VALID_DATE.invoice_date | DATA_VALIDATION | invoice_date | ERROR | ACCURACY | invoice_date must be a valid date. | Financial Controller (Finance) |
+| supplier_invoices.ALLOWED_VALUE.status | DATA_VALIDATION | status | ERROR | ACCURACY | status must be one of ['OPEN', 'PAID', 'PARTIALLY_PAID', 'CANCELLED']. | Financial Controller (Finance) |
+| supplier_invoices.REFERENTIAL_INTEGRITY.po_id | DATA_VALIDATION | po_id | ERROR | CONSISTENCY | po_id must exist in purchase_orders.po_id. | Financial Controller (Finance) |
+| supplier_invoices.REFERENTIAL_INTEGRITY.supplier_id | DATA_VALIDATION | supplier_id | ERROR | CONSISTENCY | supplier_id must exist in supplier_master.supplier_id. | Financial Controller (Finance) |
+| supplier_invoices.CALCULATION.vat_amount | BUSINESS_RULE_VALIDATION | vat_amount | ERROR | ACCURACY | vat_amount must equal net_amount * 0.15. | Financial Controller (Finance) |
+| supplier_invoices.CALCULATION.total_amount | BUSINESS_RULE_VALIDATION | total_amount | ERROR | ACCURACY | total_amount must equal net_amount + vat_amount. | Financial Controller (Finance) |
+| supplier_rebates.REQUIRED_VALUE.supplier_id | DATA_VALIDATION | supplier_id | ERROR | COMPLETENESS | supplier_id must not be blank. | Financial Controller (Finance) |
+| supplier_rebates.REQUIRED_VALUE.period | DATA_VALIDATION | period | ERROR | COMPLETENESS | period must not be blank. | Financial Controller (Finance) |
+| supplier_rebates.REQUIRED_VALUE.qualifying_spend | DATA_VALIDATION | qualifying_spend | ERROR | COMPLETENESS | qualifying_spend must not be blank. | Financial Controller (Finance) |
+| supplier_rebates.REQUIRED_VALUE.rebate_rate | DATA_VALIDATION | rebate_rate | ERROR | COMPLETENESS | rebate_rate must not be blank. | Financial Controller (Finance) |
+| supplier_rebates.REQUIRED_VALUE.rebate_amount | DATA_VALIDATION | rebate_amount | ERROR | COMPLETENESS | rebate_amount must not be blank. | Financial Controller (Finance) |
+| supplier_rebates.UNIQUE.supplier_id+period | DATA_VALIDATION | supplier_id+period | ERROR | DUPLICATE | supplier_id + period must be unique. | Financial Controller (Finance) |
+| supplier_rebates.DATA_TYPE.qualifying_spend | DATA_VALIDATION | qualifying_spend | ERROR | SCHEMA | qualifying_spend must be numeric. | Financial Controller (Finance) |
+| supplier_rebates.NUMERIC_RANGE.qualifying_spend | DATA_VALIDATION | qualifying_spend | ERROR | ACCURACY | qualifying_spend must be within the permitted range. | Financial Controller (Finance) |
+| supplier_rebates.DATA_TYPE.rebate_amount | DATA_VALIDATION | rebate_amount | ERROR | SCHEMA | rebate_amount must be numeric. | Financial Controller (Finance) |
+| supplier_rebates.NUMERIC_RANGE.rebate_amount | DATA_VALIDATION | rebate_amount | ERROR | ACCURACY | rebate_amount must be within the permitted range. | Financial Controller (Finance) |
+| supplier_rebates.ALLOWED_VALUE.rebate_rate | DATA_VALIDATION | rebate_rate | ERROR | ACCURACY | rebate_rate must be one of [0, 0.01, 0.02, 0.035]. | Financial Controller (Finance) |
+| supplier_rebates.PATTERN.period | DATA_VALIDATION | period | ERROR | ACCURACY | period must match ^\d{4}-Q[1-4]$. | Financial Controller (Finance) |
+| supplier_rebates.REFERENTIAL_INTEGRITY.supplier_id | DATA_VALIDATION | supplier_id | ERROR | CONSISTENCY | supplier_id must exist in supplier_master.supplier_id. | Financial Controller (Finance) |
+| supplier_rebates.CALCULATION.rebate_amount | BUSINESS_RULE_VALIDATION | rebate_amount | ERROR | ACCURACY | rebate_amount must equal qualifying_spend * rebate_rate. | Financial Controller (Finance) |
+| sales_transactions.REQUIRED_VALUE.sale_id | DATA_VALIDATION | sale_id | ERROR | COMPLETENESS | sale_id must not be blank. | Head of Sales (Sales) |
+| sales_transactions.REQUIRED_VALUE.sale_date | DATA_VALIDATION | sale_date | ERROR | COMPLETENESS | sale_date must not be blank. | Head of Sales (Sales) |
+| sales_transactions.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | COMPLETENESS | site_id must not be blank. | Head of Sales (Sales) |
+| sales_transactions.REQUIRED_VALUE.payment_method | DATA_VALIDATION | payment_method | ERROR | COMPLETENESS | payment_method must not be blank. | Head of Sales (Sales) |
+| sales_transactions.REQUIRED_VALUE.net_amount | DATA_VALIDATION | net_amount | ERROR | COMPLETENESS | net_amount must not be blank. | Head of Sales (Sales) |
+| sales_transactions.REQUIRED_VALUE.vat_amount | DATA_VALIDATION | vat_amount | ERROR | COMPLETENESS | vat_amount must not be blank. | Head of Sales (Sales) |
+| sales_transactions.REQUIRED_VALUE.total_amount | DATA_VALIDATION | total_amount | ERROR | COMPLETENESS | total_amount must not be blank. | Head of Sales (Sales) |
+| sales_transactions.UNIQUE.sale_id | DATA_VALIDATION | sale_id | ERROR | DUPLICATE | sale_id must be unique. | Head of Sales (Sales) |
+| sales_transactions.DATA_TYPE.net_amount | DATA_VALIDATION | net_amount | ERROR | SCHEMA | net_amount must be numeric. | Head of Sales (Sales) |
+| sales_transactions.NUMERIC_RANGE.net_amount | DATA_VALIDATION | net_amount | ERROR | ACCURACY | net_amount must be within the permitted range. | Head of Sales (Sales) |
+| sales_transactions.DATA_TYPE.vat_amount | DATA_VALIDATION | vat_amount | ERROR | SCHEMA | vat_amount must be numeric. | Head of Sales (Sales) |
+| sales_transactions.NUMERIC_RANGE.vat_amount | DATA_VALIDATION | vat_amount | ERROR | ACCURACY | vat_amount must be within the permitted range. | Head of Sales (Sales) |
+| sales_transactions.DATA_TYPE.total_amount | DATA_VALIDATION | total_amount | ERROR | SCHEMA | total_amount must be numeric. | Head of Sales (Sales) |
+| sales_transactions.NUMERIC_RANGE.total_amount | DATA_VALIDATION | total_amount | ERROR | ACCURACY | total_amount must be within the permitted range. | Head of Sales (Sales) |
+| sales_transactions.VALID_DATE.sale_date | DATA_VALIDATION | sale_date | ERROR | ACCURACY | sale_date must be a valid date. | Head of Sales (Sales) |
+| sales_transactions.ALLOWED_VALUE.payment_method | DATA_VALIDATION | payment_method | ERROR | ACCURACY | payment_method must be one of ['CASH', 'CARD', 'CREDIT']. | Head of Sales (Sales) |
+| sales_transactions.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | CONSISTENCY | site_id must exist in site_master.site_id. | Head of Sales (Sales) |
+| sales_transactions.REFERENTIAL_INTEGRITY.customer_id | DATA_VALIDATION | customer_id | ERROR | CONSISTENCY | customer_id must exist in customer_master.customer_id. | Head of Sales (Sales) |
+| sales_transactions.CALCULATION.vat_amount | BUSINESS_RULE_VALIDATION | vat_amount | ERROR | ACCURACY | vat_amount must equal net_amount * 0.15. | Head of Sales (Sales) |
+| sales_transactions.CALCULATION.total_amount | BUSINESS_RULE_VALIDATION | total_amount | ERROR | ACCURACY | total_amount must equal net_amount + vat_amount. | Head of Sales (Sales) |
+| sales_lines.REQUIRED_VALUE.sale_id | DATA_VALIDATION | sale_id | ERROR | COMPLETENESS | sale_id must not be blank. | Head of Sales (Sales) |
+| sales_lines.REQUIRED_VALUE.product_id | DATA_VALIDATION | product_id | ERROR | COMPLETENESS | product_id must not be blank. | Head of Sales (Sales) |
+| sales_lines.REQUIRED_VALUE.quantity | DATA_VALIDATION | quantity | ERROR | COMPLETENESS | quantity must not be blank. | Head of Sales (Sales) |
+| sales_lines.REQUIRED_VALUE.unit_price | DATA_VALIDATION | unit_price | ERROR | COMPLETENESS | unit_price must not be blank. | Head of Sales (Sales) |
+| sales_lines.REQUIRED_VALUE.line_net | DATA_VALIDATION | line_net | ERROR | COMPLETENESS | line_net must not be blank. | Head of Sales (Sales) |
+| sales_lines.REQUIRED_VALUE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | COMPLETENESS | unit_cost must not be blank. | Head of Sales (Sales) |
+| sales_lines.UNIQUE.sale_id+product_id | DATA_VALIDATION | sale_id+product_id | ERROR | DUPLICATE | sale_id + product_id must be unique. | Head of Sales (Sales) |
+| sales_lines.DATA_TYPE.quantity | DATA_VALIDATION | quantity | ERROR | SCHEMA | quantity must be a whole number. | Head of Sales (Sales) |
+| sales_lines.NUMERIC_RANGE.quantity | DATA_VALIDATION | quantity | ERROR | ACCURACY | quantity must be within the permitted range. | Head of Sales (Sales) |
+| sales_lines.DATA_TYPE.unit_price | DATA_VALIDATION | unit_price | ERROR | SCHEMA | unit_price must be numeric. | Head of Sales (Sales) |
+| sales_lines.NUMERIC_RANGE.unit_price | DATA_VALIDATION | unit_price | ERROR | ACCURACY | unit_price must be within the permitted range. | Head of Sales (Sales) |
+| sales_lines.DATA_TYPE.line_net | DATA_VALIDATION | line_net | ERROR | SCHEMA | line_net must be numeric. | Head of Sales (Sales) |
+| sales_lines.NUMERIC_RANGE.line_net | DATA_VALIDATION | line_net | ERROR | ACCURACY | line_net must be within the permitted range. | Head of Sales (Sales) |
+| sales_lines.DATA_TYPE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | SCHEMA | unit_cost must be numeric. | Head of Sales (Sales) |
+| sales_lines.NUMERIC_RANGE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | ACCURACY | unit_cost must be within the permitted range. | Head of Sales (Sales) |
+| sales_lines.REFERENTIAL_INTEGRITY.sale_id | DATA_VALIDATION | sale_id | ERROR | CONSISTENCY | sale_id must exist in sales_transactions.sale_id. | Head of Sales (Sales) |
+| sales_lines.REFERENTIAL_INTEGRITY.product_id | DATA_VALIDATION | product_id | ERROR | CONSISTENCY | product_id must exist in product_master.product_id. | Head of Sales (Sales) |
+| sales_lines.CALCULATION.line_net | BUSINESS_RULE_VALIDATION | line_net | ERROR | ACCURACY | line_net must equal quantity * unit_price. | Head of Sales (Sales) |
+| inventory_movements.REQUIRED_VALUE.movement_id | DATA_VALIDATION | movement_id | ERROR | COMPLETENESS | movement_id must not be blank. | Warehouse Manager (Warehousing) |
+| inventory_movements.REQUIRED_VALUE.movement_date | DATA_VALIDATION | movement_date | ERROR | COMPLETENESS | movement_date must not be blank. | Warehouse Manager (Warehousing) |
+| inventory_movements.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | COMPLETENESS | site_id must not be blank. | Warehouse Manager (Warehousing) |
+| inventory_movements.REQUIRED_VALUE.product_id | DATA_VALIDATION | product_id | ERROR | COMPLETENESS | product_id must not be blank. | Warehouse Manager (Warehousing) |
+| inventory_movements.REQUIRED_VALUE.movement_type | DATA_VALIDATION | movement_type | ERROR | COMPLETENESS | movement_type must not be blank. | Warehouse Manager (Warehousing) |
+| inventory_movements.REQUIRED_VALUE.quantity | DATA_VALIDATION | quantity | ERROR | COMPLETENESS | quantity must not be blank. | Warehouse Manager (Warehousing) |
+| inventory_movements.REQUIRED_VALUE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | COMPLETENESS | unit_cost must not be blank. | Warehouse Manager (Warehousing) |
+| inventory_movements.REQUIRED_VALUE.source_document_id | DATA_VALIDATION | source_document_id | ERROR | COMPLETENESS | source_document_id must not be blank. | Warehouse Manager (Warehousing) |
+| inventory_movements.UNIQUE.movement_id | DATA_VALIDATION | movement_id | ERROR | DUPLICATE | movement_id must be unique. | Warehouse Manager (Warehousing) |
+| inventory_movements.DATA_TYPE.quantity | DATA_VALIDATION | quantity | ERROR | SCHEMA | quantity must be a whole number. | Warehouse Manager (Warehousing) |
+| inventory_movements.DATA_TYPE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | SCHEMA | unit_cost must be numeric. | Warehouse Manager (Warehousing) |
+| inventory_movements.NUMERIC_RANGE.unit_cost | DATA_VALIDATION | unit_cost | ERROR | ACCURACY | unit_cost must be within the permitted range. | Warehouse Manager (Warehousing) |
+| inventory_movements.VALID_DATE.movement_date | DATA_VALIDATION | movement_date | ERROR | ACCURACY | movement_date must be a valid date. | Warehouse Manager (Warehousing) |
+| inventory_movements.ALLOWED_VALUE.movement_type | DATA_VALIDATION | movement_type | ERROR | ACCURACY | movement_type must be one of ['PURCHASE_RECEIPT', 'SALE', 'TRANSFER_IN', 'TRANSFER_OUT', 'ADJUSTMENT', 'WRITE_OFF', 'RETURN']. | Warehouse Manager (Warehousing) |
+| inventory_movements.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | CONSISTENCY | site_id must exist in site_master.site_id. | Warehouse Manager (Warehousing) |
+| inventory_movements.REFERENTIAL_INTEGRITY.product_id | DATA_VALIDATION | product_id | ERROR | CONSISTENCY | product_id must exist in product_master.product_id. | Warehouse Manager (Warehousing) |
+| operating_expenses.REQUIRED_VALUE.expense_id | DATA_VALIDATION | expense_id | ERROR | COMPLETENESS | expense_id must not be blank. | Financial Controller (Finance) |
+| operating_expenses.REQUIRED_VALUE.expense_date | DATA_VALIDATION | expense_date | ERROR | COMPLETENESS | expense_date must not be blank. | Financial Controller (Finance) |
+| operating_expenses.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | COMPLETENESS | site_id must not be blank. | Financial Controller (Finance) |
+| operating_expenses.REQUIRED_VALUE.expense_type | DATA_VALIDATION | expense_type | ERROR | COMPLETENESS | expense_type must not be blank. | Financial Controller (Finance) |
+| operating_expenses.REQUIRED_VALUE.amount | DATA_VALIDATION | amount | ERROR | COMPLETENESS | amount must not be blank. | Financial Controller (Finance) |
+| operating_expenses.UNIQUE.expense_id | DATA_VALIDATION | expense_id | ERROR | DUPLICATE | expense_id must be unique. | Financial Controller (Finance) |
+| operating_expenses.DATA_TYPE.amount | DATA_VALIDATION | amount | ERROR | SCHEMA | amount must be numeric. | Financial Controller (Finance) |
+| operating_expenses.NUMERIC_RANGE.amount | DATA_VALIDATION | amount | ERROR | ACCURACY | amount must be within the permitted range. | Financial Controller (Finance) |
+| operating_expenses.VALID_DATE.expense_date | DATA_VALIDATION | expense_date | ERROR | ACCURACY | expense_date must be a valid date. | Financial Controller (Finance) |
+| operating_expenses.ALLOWED_VALUE.expense_type | DATA_VALIDATION | expense_type | ERROR | ACCURACY | expense_type must be one of ['RENT', 'UTILITY', 'CONNECTIVITY', 'FUEL', 'SECURITY', 'MAINTENANCE']. | Financial Controller (Finance) |
+| operating_expenses.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | CONSISTENCY | site_id must exist in site_master.site_id. | Financial Controller (Finance) |
+| general_ledger.REQUIRED_VALUE.journal_id | DATA_VALIDATION | journal_id | ERROR | COMPLETENESS | journal_id must not be blank. | Chief Financial Officer (Finance) |
+| general_ledger.REQUIRED_VALUE.posting_date | DATA_VALIDATION | posting_date | ERROR | COMPLETENESS | posting_date must not be blank. | Chief Financial Officer (Finance) |
+| general_ledger.REQUIRED_VALUE.source_document_id | DATA_VALIDATION | source_document_id | ERROR | COMPLETENESS | source_document_id must not be blank. | Chief Financial Officer (Finance) |
+| general_ledger.REQUIRED_VALUE.transaction_type | DATA_VALIDATION | transaction_type | ERROR | COMPLETENESS | transaction_type must not be blank. | Chief Financial Officer (Finance) |
+| general_ledger.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | COMPLETENESS | site_id must not be blank. | Chief Financial Officer (Finance) |
+| general_ledger.REQUIRED_VALUE.account_code | DATA_VALIDATION | account_code | ERROR | COMPLETENESS | account_code must not be blank. | Chief Financial Officer (Finance) |
+| general_ledger.DATA_TYPE.debit | DATA_VALIDATION | debit | ERROR | SCHEMA | debit must be numeric. | Chief Financial Officer (Finance) |
+| general_ledger.NUMERIC_RANGE.debit | DATA_VALIDATION | debit | ERROR | ACCURACY | debit must be within the permitted range. | Chief Financial Officer (Finance) |
+| general_ledger.DATA_TYPE.credit | DATA_VALIDATION | credit | ERROR | SCHEMA | credit must be numeric. | Chief Financial Officer (Finance) |
+| general_ledger.NUMERIC_RANGE.credit | DATA_VALIDATION | credit | ERROR | ACCURACY | credit must be within the permitted range. | Chief Financial Officer (Finance) |
+| general_ledger.VALID_DATE.posting_date | DATA_VALIDATION | posting_date | ERROR | ACCURACY | posting_date must be a valid date. | Chief Financial Officer (Finance) |
+| general_ledger.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | CONSISTENCY | site_id must exist in site_master.site_id. | Chief Financial Officer (Finance) |
+| general_ledger.REFERENTIAL_INTEGRITY.account_code | DATA_VALIDATION | account_code | ERROR | CONSISTENCY | account_code must exist in chart_of_accounts.csv.account_code. | Chief Financial Officer (Finance) |
+| general_ledger.REFERENTIAL_INTEGRITY.transaction_type | DATA_VALIDATION | transaction_type | WARNING | CONSISTENCY | transaction_type must exist in posting_rules.csv.transaction_type. | Chief Financial Officer (Finance) |
+| general_ledger.JOURNAL_BALANCE.journal_id | BUSINESS_RULE_VALIDATION | journal_id | ERROR | CONSISTENCY | Debits must equal credits per journal_id. | Chief Financial Officer (Finance) |
+| fixed_assets_erp.REQUIRED_VALUE.asset_id | DATA_VALIDATION | asset_id | ERROR | COMPLETENESS | asset_id must not be blank. | Financial Controller (Finance) |
+| fixed_assets_erp.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | COMPLETENESS | site_id must not be blank. | Financial Controller (Finance) |
+| fixed_assets_erp.REQUIRED_VALUE.asset_class | DATA_VALIDATION | asset_class | ERROR | COMPLETENESS | asset_class must not be blank. | Financial Controller (Finance) |
+| fixed_assets_erp.REQUIRED_VALUE.acquisition_date | DATA_VALIDATION | acquisition_date | ERROR | COMPLETENESS | acquisition_date must not be blank. | Financial Controller (Finance) |
+| fixed_assets_erp.REQUIRED_VALUE.acquisition_cost | DATA_VALIDATION | acquisition_cost | ERROR | COMPLETENESS | acquisition_cost must not be blank. | Financial Controller (Finance) |
+| fixed_assets_erp.REQUIRED_VALUE.useful_life_years | DATA_VALIDATION | useful_life_years | ERROR | COMPLETENESS | useful_life_years must not be blank. | Financial Controller (Finance) |
+| fixed_assets_erp.REQUIRED_VALUE.status | DATA_VALIDATION | status | ERROR | COMPLETENESS | status must not be blank. | Financial Controller (Finance) |
+| fixed_assets_erp.UNIQUE.asset_id | DATA_VALIDATION | asset_id | ERROR | DUPLICATE | asset_id must be unique. | Financial Controller (Finance) |
+| fixed_assets_erp.DATA_TYPE.acquisition_cost | DATA_VALIDATION | acquisition_cost | ERROR | SCHEMA | acquisition_cost must be numeric. | Financial Controller (Finance) |
+| fixed_assets_erp.NUMERIC_RANGE.acquisition_cost | DATA_VALIDATION | acquisition_cost | ERROR | ACCURACY | acquisition_cost must be within the permitted range. | Financial Controller (Finance) |
+| fixed_assets_erp.DATA_TYPE.useful_life_years | DATA_VALIDATION | useful_life_years | ERROR | SCHEMA | useful_life_years must be a whole number. | Financial Controller (Finance) |
+| fixed_assets_erp.NUMERIC_RANGE.useful_life_years | DATA_VALIDATION | useful_life_years | ERROR | ACCURACY | useful_life_years must be within the permitted range. | Financial Controller (Finance) |
+| fixed_assets_erp.DATA_TYPE.monthly_depreciation | DATA_VALIDATION | monthly_depreciation | ERROR | SCHEMA | monthly_depreciation must be numeric. | Financial Controller (Finance) |
+| fixed_assets_erp.NUMERIC_RANGE.monthly_depreciation | DATA_VALIDATION | monthly_depreciation | ERROR | ACCURACY | monthly_depreciation must be within the permitted range. | Financial Controller (Finance) |
+| fixed_assets_erp.DATA_TYPE.accumulated_depreciation | DATA_VALIDATION | accumulated_depreciation | ERROR | SCHEMA | accumulated_depreciation must be numeric. | Financial Controller (Finance) |
+| fixed_assets_erp.NUMERIC_RANGE.accumulated_depreciation | DATA_VALIDATION | accumulated_depreciation | ERROR | ACCURACY | accumulated_depreciation must be within the permitted range. | Financial Controller (Finance) |
+| fixed_assets_erp.DATA_TYPE.net_book_value | DATA_VALIDATION | net_book_value | ERROR | SCHEMA | net_book_value must be numeric. | Financial Controller (Finance) |
+| fixed_assets_erp.NUMERIC_RANGE.net_book_value | DATA_VALIDATION | net_book_value | ERROR | ACCURACY | net_book_value must be within the permitted range. | Financial Controller (Finance) |
+| fixed_assets_erp.VALID_DATE.acquisition_date | DATA_VALIDATION | acquisition_date | ERROR | ACCURACY | acquisition_date must be a valid date. | Financial Controller (Finance) |
+| fixed_assets_erp.ALLOWED_VALUE.asset_class | DATA_VALIDATION | asset_class | ERROR | ACCURACY | asset_class must be one of ['Vehicles', 'Computer Hardware', 'Servers and Network Equipment', 'Machinery and Equipment', 'Furniture and Fittings']. | Financial Controller (Finance) |
+| fixed_assets_erp.ALLOWED_VALUE.status | DATA_VALIDATION | status | ERROR | ACCURACY | status must be one of ['ACTIVE', 'DISPOSED', 'WRITTEN_OFF']. | Financial Controller (Finance) |
+| fixed_assets_erp.PATTERN.asset_id | DATA_VALIDATION | asset_id | ERROR | ACCURACY | asset_id must match ^AST\d{6}$. | Financial Controller (Finance) |
+| fixed_assets_erp.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | CONSISTENCY | site_id must exist in site_master.site_id. | Financial Controller (Finance) |
+| fixed_assets_erp.CALCULATION.monthly_depreciation | BUSINESS_RULE_VALIDATION | monthly_depreciation | ERROR | ACCURACY | monthly_depreciation must equal acquisition_cost / (useful_life_years * 12). | Financial Controller (Finance) |
+| fixed_assets_erp.CALCULATION.net_book_value | BUSINESS_RULE_VALIDATION | net_book_value | ERROR | ACCURACY | net_book_value must equal acquisition_cost - accumulated_depreciation. | Financial Controller (Finance) |
+| fixed_assets_erp.DEPRECIATION_NOT_ABOVE_COST.accumulated_depreciation | BUSINESS_RULE_VALIDATION | accumulated_depreciation | ERROR | ACCURACY | accumulated_depreciation must be <= acquisition_cost. | Financial Controller (Finance) |
+| branch_local_assets.REQUIRED_VALUE.local_asset_id | DATA_VALIDATION | local_asset_id | ERROR | COMPLETENESS | local_asset_id must not be blank. | Head of Operations (Operations) |
+| branch_local_assets.REQUIRED_VALUE.site_id | DATA_VALIDATION | site_id | ERROR | COMPLETENESS | site_id must not be blank. | Head of Operations (Operations) |
+| branch_local_assets.REQUIRED_VALUE.department_id | DATA_VALIDATION | department_id | ERROR | COMPLETENESS | department_id must not be blank. | Head of Operations (Operations) |
+| branch_local_assets.REQUIRED_VALUE.description | DATA_VALIDATION | description | ERROR | COMPLETENESS | description must not be blank. | Head of Operations (Operations) |
+| branch_local_assets.UNIQUE.local_asset_id | DATA_VALIDATION | local_asset_id | ERROR | DUPLICATE | local_asset_id must be unique. | Head of Operations (Operations) |
+| branch_local_assets.VALID_DATE.recorded_date | DATA_VALIDATION | recorded_date | ERROR | ACCURACY | recorded_date must be a valid date. | Head of Operations (Operations) |
+| branch_local_assets.ALLOWED_VALUE.condition | DATA_VALIDATION | condition | ERROR | ACCURACY | condition must be one of ['Good', 'Fair', 'Needs Repair']. | Head of Operations (Operations) |
+| branch_local_assets.REFERENTIAL_INTEGRITY.site_id | DATA_VALIDATION | site_id | ERROR | CONSISTENCY | site_id must exist in site_master.site_id. | Head of Operations (Operations) |
+| branch_local_assets.REFERENTIAL_INTEGRITY.department_id | DATA_VALIDATION | department_id | ERROR | CONSISTENCY | department_id must exist in department_master.department_id. | Head of Operations (Operations) |
+| branch_cashup.REQUIRED_VALUE.shift_id | DATA_VALIDATION | shift_id | ERROR | COMPLETENESS | shift_id must not be blank. | Head of Operations (Operations) |
+| branch_cashup.REQUIRED_VALUE.site_code | DATA_VALIDATION | site_code | ERROR | COMPLETENESS | site_code must not be blank. | Head of Operations (Operations) |
+| branch_cashup.REQUIRED_VALUE.business_date | DATA_VALIDATION | business_date | ERROR | COMPLETENESS | business_date must not be blank. | Head of Operations (Operations) |
+| branch_cashup.REQUIRED_VALUE.opening_float | DATA_VALIDATION | opening_float | ERROR | COMPLETENESS | opening_float must not be blank. | Head of Operations (Operations) |
+| branch_cashup.REQUIRED_VALUE.cash_sales | DATA_VALIDATION | cash_sales | ERROR | COMPLETENESS | cash_sales must not be blank. | Head of Operations (Operations) |
+| branch_cashup.REQUIRED_VALUE.card_sales | DATA_VALIDATION | card_sales | ERROR | COMPLETENESS | card_sales must not be blank. | Head of Operations (Operations) |
+| branch_cashup.REQUIRED_VALUE.account_sales | DATA_VALIDATION | account_sales | ERROR | COMPLETENESS | account_sales must not be blank. | Head of Operations (Operations) |
+| branch_cashup.REQUIRED_VALUE.total_sales | DATA_VALIDATION | total_sales | ERROR | COMPLETENESS | total_sales must not be blank. | Head of Operations (Operations) |
+| branch_cashup.REQUIRED_VALUE.cash_removed | DATA_VALIDATION | cash_removed | ERROR | COMPLETENESS | cash_removed must not be blank. | Head of Operations (Operations) |
+| branch_cashup.REQUIRED_VALUE.expected_closing_cash | DATA_VALIDATION | expected_closing_cash | ERROR | COMPLETENESS | expected_closing_cash must not be blank. | Head of Operations (Operations) |
+| branch_cashup.REQUIRED_VALUE.actual_closing_cash | DATA_VALIDATION | actual_closing_cash | ERROR | COMPLETENESS | actual_closing_cash must not be blank. | Head of Operations (Operations) |
+| branch_cashup.REQUIRED_VALUE.variance | DATA_VALIDATION | variance | ERROR | COMPLETENESS | variance must not be blank. | Head of Operations (Operations) |
+| branch_cashup.DATA_TYPE.opening_float | DATA_VALIDATION | opening_float | ERROR | SCHEMA | opening_float must be numeric. | Head of Operations (Operations) |
+| branch_cashup.NUMERIC_RANGE.opening_float | DATA_VALIDATION | opening_float | ERROR | ACCURACY | opening_float must be within the permitted range. | Head of Operations (Operations) |
+| branch_cashup.DATA_TYPE.cash_sales | DATA_VALIDATION | cash_sales | ERROR | SCHEMA | cash_sales must be numeric. | Head of Operations (Operations) |
+| branch_cashup.NUMERIC_RANGE.cash_sales | DATA_VALIDATION | cash_sales | ERROR | ACCURACY | cash_sales must be within the permitted range. | Head of Operations (Operations) |
+| branch_cashup.DATA_TYPE.card_sales | DATA_VALIDATION | card_sales | ERROR | SCHEMA | card_sales must be numeric. | Head of Operations (Operations) |
+| branch_cashup.NUMERIC_RANGE.card_sales | DATA_VALIDATION | card_sales | ERROR | ACCURACY | card_sales must be within the permitted range. | Head of Operations (Operations) |
+| branch_cashup.DATA_TYPE.account_sales | DATA_VALIDATION | account_sales | ERROR | SCHEMA | account_sales must be numeric. | Head of Operations (Operations) |
+| branch_cashup.NUMERIC_RANGE.account_sales | DATA_VALIDATION | account_sales | ERROR | ACCURACY | account_sales must be within the permitted range. | Head of Operations (Operations) |
+| branch_cashup.DATA_TYPE.total_sales | DATA_VALIDATION | total_sales | ERROR | SCHEMA | total_sales must be numeric. | Head of Operations (Operations) |
+| branch_cashup.NUMERIC_RANGE.total_sales | DATA_VALIDATION | total_sales | ERROR | ACCURACY | total_sales must be within the permitted range. | Head of Operations (Operations) |
+| branch_cashup.DATA_TYPE.internal_expenses | DATA_VALIDATION | internal_expenses | ERROR | SCHEMA | internal_expenses must be numeric. | Head of Operations (Operations) |
+| branch_cashup.NUMERIC_RANGE.internal_expenses | DATA_VALIDATION | internal_expenses | ERROR | ACCURACY | internal_expenses must be within the permitted range. | Head of Operations (Operations) |
+| branch_cashup.DATA_TYPE.cash_removed | DATA_VALIDATION | cash_removed | ERROR | SCHEMA | cash_removed must be numeric. | Head of Operations (Operations) |
+| branch_cashup.NUMERIC_RANGE.cash_removed | DATA_VALIDATION | cash_removed | ERROR | ACCURACY | cash_removed must be within the permitted range. | Head of Operations (Operations) |
+| branch_cashup.DATA_TYPE.expected_closing_cash | DATA_VALIDATION | expected_closing_cash | ERROR | SCHEMA | expected_closing_cash must be numeric. | Head of Operations (Operations) |
+| branch_cashup.DATA_TYPE.actual_closing_cash | DATA_VALIDATION | actual_closing_cash | ERROR | SCHEMA | actual_closing_cash must be numeric. | Head of Operations (Operations) |
+| branch_cashup.NUMERIC_RANGE.actual_closing_cash | DATA_VALIDATION | actual_closing_cash | ERROR | ACCURACY | actual_closing_cash must be within the permitted range. | Head of Operations (Operations) |
+| branch_cashup.DATA_TYPE.variance | DATA_VALIDATION | variance | ERROR | SCHEMA | variance must be numeric. | Head of Operations (Operations) |
+| branch_cashup.VALID_DATE.business_date | DATA_VALIDATION | business_date | ERROR | ACCURACY | business_date must be a valid date. | Head of Operations (Operations) |
+| branch_cashup.ALLOWED_VALUE.manager_approval | DATA_VALIDATION | manager_approval | ERROR | ACCURACY | manager_approval must be one of ['Approved']. | Head of Operations (Operations) |
+| branch_cashup.PATTERN.shift_id | DATA_VALIDATION | shift_id | ERROR | ACCURACY | shift_id must match ^SHIFT-\d{6}$. | Head of Operations (Operations) |
+| branch_cashup.PATTERN.site_code | DATA_VALIDATION | site_code | ERROR | ACCURACY | site_code must match ^BR\d{3}$. | Head of Operations (Operations) |
+| branch_cashup.REFERENTIAL_INTEGRITY.site_code | DATA_VALIDATION | site_code | ERROR | CONSISTENCY | site_code must exist in site_master.site_id. | Head of Operations (Operations) |
+| branch_cashup.CASHUP_TOTAL_SALES.total_sales | BUSINESS_RULE_VALIDATION | total_sales | ERROR | ACCURACY | total_sales must equal cash_sales + card_sales + account_sales. | Head of Operations (Operations) |
+| branch_cashup.CASHUP_EXPECTED_CLOSING.expected_closing_cash | BUSINESS_RULE_VALIDATION | expected_closing_cash | ERROR | ACCURACY | expected_closing_cash must equal opening_float + cash_sales - internal_expenses - cash_removed. | Head of Operations (Operations) |
+| branch_cashup.CASHUP_VARIANCE.variance | BUSINESS_RULE_VALIDATION | variance | ERROR | ACCURACY | variance must equal actual_closing_cash - expected_closing_cash. | Head of Operations (Operations) |
+| branch_cashup.CASHUP_FILENAME_SITE.site_code | BUSINESS_RULE_VALIDATION | site_code | ERROR | ACCURACY | site_code must be == file_site_code. | Head of Operations (Operations) |
+| branch_cashup.CASHUP_FILENAME_SHIFT.shift_id | BUSINESS_RULE_VALIDATION | shift_id | ERROR | ACCURACY | shift_id must be == file_shift_id. | Head of Operations (Operations) |
 
 ## Reconciliation controls (after each load)
 
@@ -297,133 +410,225 @@ CRITICAL and ERROR controls are mandatory quality gates: a failure fails the map
 |---|---|---|---|---|---|---|
 | SILVER_SITE.ROW_COUNT | SILVER_SITE | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_SITE.HASH_LINEAGE | SILVER_SITE | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_SITE.SCHEMA | SILVER_SITE | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_SITE.FRESHNESS | SILVER_SITE | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_SITE.VOLUME | SILVER_SITE | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_DEPARTMENT.ROW_COUNT | SILVER_DEPARTMENT | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_DEPARTMENT.HASH_LINEAGE | SILVER_DEPARTMENT | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_DEPARTMENT.SCHEMA | SILVER_DEPARTMENT | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_DEPARTMENT.FRESHNESS | SILVER_DEPARTMENT | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_DEPARTMENT.VOLUME | SILVER_DEPARTMENT | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_PRODUCT.ROW_COUNT | SILVER_PRODUCT | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_PRODUCT.HASH_LINEAGE | SILVER_PRODUCT | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_PRODUCT.SCHEMA | SILVER_PRODUCT | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_PRODUCT.FRESHNESS | SILVER_PRODUCT | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_PRODUCT.VOLUME | SILVER_PRODUCT | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_SUPPLIER.ROW_COUNT | SILVER_SUPPLIER | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_SUPPLIER.HASH_LINEAGE | SILVER_SUPPLIER | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_SUPPLIER.SCHEMA | SILVER_SUPPLIER | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_SUPPLIER.FRESHNESS | SILVER_SUPPLIER | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_SUPPLIER.VOLUME | SILVER_SUPPLIER | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_PRODUCT_SUPPLIER.ROW_COUNT | SILVER_PRODUCT_SUPPLIER | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_PRODUCT_SUPPLIER.HASH_LINEAGE | SILVER_PRODUCT_SUPPLIER | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_PRODUCT_SUPPLIER.SCHEMA | SILVER_PRODUCT_SUPPLIER | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_PRODUCT_SUPPLIER.FRESHNESS | SILVER_PRODUCT_SUPPLIER | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_PRODUCT_SUPPLIER.VOLUME | SILVER_PRODUCT_SUPPLIER | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_CUSTOMER.ROW_COUNT | SILVER_CUSTOMER | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_CUSTOMER.HASH_LINEAGE | SILVER_CUSTOMER | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_CUSTOMER.SCHEMA | SILVER_CUSTOMER | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_CUSTOMER.FRESHNESS | SILVER_CUSTOMER | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_CUSTOMER.VOLUME | SILVER_CUSTOMER | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_PURCHASE_ORDER.ROW_COUNT | SILVER_PURCHASE_ORDER | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_PURCHASE_ORDER.HASH_LINEAGE | SILVER_PURCHASE_ORDER | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_PURCHASE_ORDER.SCHEMA | SILVER_PURCHASE_ORDER | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_PURCHASE_ORDER.FRESHNESS | SILVER_PURCHASE_ORDER | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_PURCHASE_ORDER.VOLUME | SILVER_PURCHASE_ORDER | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_PURCHASE_ORDER_LINE.ROW_COUNT | SILVER_PURCHASE_ORDER_LINE | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_PURCHASE_ORDER_LINE.HASH_LINEAGE | SILVER_PURCHASE_ORDER_LINE | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_PURCHASE_ORDER_LINE.SCHEMA | SILVER_PURCHASE_ORDER_LINE | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_PURCHASE_ORDER_LINE.FRESHNESS | SILVER_PURCHASE_ORDER_LINE | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_PURCHASE_ORDER_LINE.VOLUME | SILVER_PURCHASE_ORDER_LINE | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_GOODS_RECEIPT.ROW_COUNT | SILVER_GOODS_RECEIPT | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_GOODS_RECEIPT.HASH_LINEAGE | SILVER_GOODS_RECEIPT | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_GOODS_RECEIPT.SCHEMA | SILVER_GOODS_RECEIPT | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_GOODS_RECEIPT.FRESHNESS | SILVER_GOODS_RECEIPT | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_GOODS_RECEIPT.VOLUME | SILVER_GOODS_RECEIPT | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_SUPPLIER_INVOICE.ROW_COUNT | SILVER_SUPPLIER_INVOICE | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_SUPPLIER_INVOICE.HASH_LINEAGE | SILVER_SUPPLIER_INVOICE | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_SUPPLIER_INVOICE.SCHEMA | SILVER_SUPPLIER_INVOICE | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_SUPPLIER_INVOICE.FRESHNESS | SILVER_SUPPLIER_INVOICE | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_SUPPLIER_INVOICE.VOLUME | SILVER_SUPPLIER_INVOICE | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_SUPPLIER_REBATE.ROW_COUNT | SILVER_SUPPLIER_REBATE | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_SUPPLIER_REBATE.HASH_LINEAGE | SILVER_SUPPLIER_REBATE | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_SUPPLIER_REBATE.SCHEMA | SILVER_SUPPLIER_REBATE | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_SUPPLIER_REBATE.FRESHNESS | SILVER_SUPPLIER_REBATE | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_SUPPLIER_REBATE.VOLUME | SILVER_SUPPLIER_REBATE | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_SALES_TRANSACTION.ROW_COUNT | SILVER_SALES_TRANSACTION | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_SALES_TRANSACTION.HASH_LINEAGE | SILVER_SALES_TRANSACTION | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_SALES_TRANSACTION.SCHEMA | SILVER_SALES_TRANSACTION | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_SALES_TRANSACTION.FRESHNESS | SILVER_SALES_TRANSACTION | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_SALES_TRANSACTION.VOLUME | SILVER_SALES_TRANSACTION | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_SALES_LINE.ROW_COUNT | SILVER_SALES_LINE | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_SALES_LINE.HASH_LINEAGE | SILVER_SALES_LINE | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_SALES_LINE.SCHEMA | SILVER_SALES_LINE | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_SALES_LINE.FRESHNESS | SILVER_SALES_LINE | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_SALES_LINE.VOLUME | SILVER_SALES_LINE | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_INVENTORY_MOVEMENT.ROW_COUNT | SILVER_INVENTORY_MOVEMENT | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_INVENTORY_MOVEMENT.HASH_LINEAGE | SILVER_INVENTORY_MOVEMENT | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_INVENTORY_MOVEMENT.SCHEMA | SILVER_INVENTORY_MOVEMENT | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_INVENTORY_MOVEMENT.FRESHNESS | SILVER_INVENTORY_MOVEMENT | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_INVENTORY_MOVEMENT.VOLUME | SILVER_INVENTORY_MOVEMENT | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_OPERATING_EXPENSE.ROW_COUNT | SILVER_OPERATING_EXPENSE | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_OPERATING_EXPENSE.HASH_LINEAGE | SILVER_OPERATING_EXPENSE | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_OPERATING_EXPENSE.SCHEMA | SILVER_OPERATING_EXPENSE | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_OPERATING_EXPENSE.FRESHNESS | SILVER_OPERATING_EXPENSE | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_OPERATING_EXPENSE.VOLUME | SILVER_OPERATING_EXPENSE | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_GENERAL_LEDGER.ROW_COUNT | SILVER_GENERAL_LEDGER | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_GENERAL_LEDGER.HASH_LINEAGE | SILVER_GENERAL_LEDGER | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_GENERAL_LEDGER.SCHEMA | SILVER_GENERAL_LEDGER | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_GENERAL_LEDGER.FRESHNESS | SILVER_GENERAL_LEDGER | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_GENERAL_LEDGER.VOLUME | SILVER_GENERAL_LEDGER | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_FIXED_ASSET.ROW_COUNT | SILVER_FIXED_ASSET | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_FIXED_ASSET.HASH_LINEAGE | SILVER_FIXED_ASSET | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_FIXED_ASSET.SCHEMA | SILVER_FIXED_ASSET | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_FIXED_ASSET.FRESHNESS | SILVER_FIXED_ASSET | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_FIXED_ASSET.VOLUME | SILVER_FIXED_ASSET | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_BRANCH_LOCAL_ASSET.ROW_COUNT | SILVER_BRANCH_LOCAL_ASSET | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_BRANCH_LOCAL_ASSET.HASH_LINEAGE | SILVER_BRANCH_LOCAL_ASSET | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_BRANCH_LOCAL_ASSET.SCHEMA | SILVER_BRANCH_LOCAL_ASSET | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_BRANCH_LOCAL_ASSET.FRESHNESS | SILVER_BRANCH_LOCAL_ASSET | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_BRANCH_LOCAL_ASSET.VOLUME | SILVER_BRANCH_LOCAL_ASSET | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_BRANCH_CASHUP.ROW_COUNT | SILVER_BRANCH_CASHUP | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_BRANCH_CASHUP.HASH_LINEAGE | SILVER_BRANCH_CASHUP | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_BRANCH_CASHUP.SCHEMA | SILVER_BRANCH_CASHUP | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_BRANCH_CASHUP.FRESHNESS | SILVER_BRANCH_CASHUP | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_BRANCH_CASHUP.VOLUME | SILVER_BRANCH_CASHUP | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
 | SILVER_CHART_OF_ACCOUNTS.ROW_COUNT | SILVER_CHART_OF_ACCOUNTS | RECON_ROW_COUNT | CRITICAL | Yes |  |  |
 | SILVER_CHART_OF_ACCOUNTS.HASH_LINEAGE | SILVER_CHART_OF_ACCOUNTS | RECON_HASH_LINEAGE | CRITICAL | Yes |  |  |
+| SILVER_CHART_OF_ACCOUNTS.SCHEMA | SILVER_CHART_OF_ACCOUNTS | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | SILVER_CHART_OF_ACCOUNTS.FRESHNESS | SILVER_CHART_OF_ACCOUNTS | RECON_FRESHNESS | WARNING | No |  |  |
+| SILVER_CHART_OF_ACCOUNTS.VOLUME | SILVER_CHART_OF_ACCOUNTS | RECON_VOLUME | WARNING | No |  | {"history_runs": 5, "min_ratio": 0.5, "max_ratio": 2.0} |
+| GOLD_DIM_DATE.SCHEMA | GOLD_DIM_DATE | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_DIM_SITE.WAREHOUSE_AUDIT | GOLD_DIM_SITE | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_DIM_SITE.SCHEMA | GOLD_DIM_SITE | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_DIM_SITE.KEY_COVERAGE | GOLD_DIM_SITE | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.Site", "staging_key": ["site_id"], "target_table": "gold.DimSite", "target_key": ["SiteID"], "target_filter": "active"} |
+| GOLD_DIM_SITE.DUPLICATE_KEYS | GOLD_DIM_SITE | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.DimSite", "target_key": ["SiteID"], "target_filter": "active"} |
 | GOLD_DIM_DEPARTMENT.WAREHOUSE_AUDIT | GOLD_DIM_DEPARTMENT | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_DIM_DEPARTMENT.SCHEMA | GOLD_DIM_DEPARTMENT | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_DIM_DEPARTMENT.KEY_COVERAGE | GOLD_DIM_DEPARTMENT | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.Department", "staging_key": ["department_id"], "target_table": "gold.DimDepartment", "target_key": ["DepartmentID"], "target_filter": "active"} |
+| GOLD_DIM_DEPARTMENT.DUPLICATE_KEYS | GOLD_DIM_DEPARTMENT | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.DimDepartment", "target_key": ["DepartmentID"], "target_filter": "active"} |
 | GOLD_DIM_PRODUCT.WAREHOUSE_AUDIT | GOLD_DIM_PRODUCT | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_DIM_PRODUCT.SCHEMA | GOLD_DIM_PRODUCT | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_DIM_PRODUCT.KEY_COVERAGE | GOLD_DIM_PRODUCT | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.Product", "staging_key": ["product_id"], "target_table": "gold.DimProduct", "target_key": ["ProductID"], "target_filter": "current"} |
+| GOLD_DIM_PRODUCT.DUPLICATE_KEYS | GOLD_DIM_PRODUCT | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.DimProduct", "target_key": ["ProductID"], "target_filter": "current"} |
 | GOLD_DIM_PRODUCT.SCD2_INTEGRITY | GOLD_DIM_PRODUCT | RECON_SCD2_INTEGRITY | CRITICAL | Yes |  | {"target_table": "gold.DimProduct", "target_key": "ProductID"} |
 | GOLD_DIM_CUSTOMER.WAREHOUSE_AUDIT | GOLD_DIM_CUSTOMER | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_DIM_CUSTOMER.SCHEMA | GOLD_DIM_CUSTOMER | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_DIM_CUSTOMER.KEY_COVERAGE | GOLD_DIM_CUSTOMER | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.Customer", "staging_key": ["customer_id"], "target_table": "gold.DimCustomer", "target_key": ["CustomerID"], "target_filter": "current"} |
+| GOLD_DIM_CUSTOMER.DUPLICATE_KEYS | GOLD_DIM_CUSTOMER | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.DimCustomer", "target_key": ["CustomerID"], "target_filter": "current"} |
 | GOLD_DIM_CUSTOMER.SCD2_INTEGRITY | GOLD_DIM_CUSTOMER | RECON_SCD2_INTEGRITY | CRITICAL | Yes |  | {"target_table": "gold.DimCustomer", "target_key": "CustomerID"} |
 | GOLD_DIM_SUPPLIER.WAREHOUSE_AUDIT | GOLD_DIM_SUPPLIER | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_DIM_SUPPLIER.SCHEMA | GOLD_DIM_SUPPLIER | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_DIM_SUPPLIER.SUPPLIER_RECONCILIATION | GOLD_DIM_SUPPLIER | RECON_SUPPLIER | CRITICAL | Yes |  |  |
+| GOLD_DIM_SUPPLIER.DUPLICATE_KEYS | GOLD_DIM_SUPPLIER | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.DimSupplier", "target_key": ["SupplierID"], "target_filter": "current"} |
 | GOLD_DIM_ACCOUNT.WAREHOUSE_AUDIT | GOLD_DIM_ACCOUNT | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_DIM_ACCOUNT.SCHEMA | GOLD_DIM_ACCOUNT | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_DIM_ACCOUNT.KEY_COVERAGE | GOLD_DIM_ACCOUNT | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.ChartOfAccounts", "staging_key": ["account_code"], "target_table": "gold.DimAccount", "target_key": ["AccountCode"], "target_filter": "active"} |
+| GOLD_DIM_ACCOUNT.DUPLICATE_KEYS | GOLD_DIM_ACCOUNT | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.DimAccount", "target_key": ["AccountCode"], "target_filter": "active"} |
 | GOLD_DIM_ASSET.WAREHOUSE_AUDIT | GOLD_DIM_ASSET | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_DIM_ASSET.SCHEMA | GOLD_DIM_ASSET | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_DIM_ASSET.KEY_COVERAGE | GOLD_DIM_ASSET | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.FixedAsset", "staging_key": ["asset_id"], "target_table": "gold.DimAsset", "target_key": ["AssetID"], "target_filter": "active"} |
+| GOLD_DIM_ASSET.DUPLICATE_KEYS | GOLD_DIM_ASSET | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.DimAsset", "target_key": ["AssetID"], "target_filter": "active"} |
 | GOLD_DIM_ASSET.COST_TOTAL | GOLD_DIM_ASSET | RECON_MEASURE_TOTAL | ERROR | Yes | 0.01 | Tolerance justified: Cent rounding |
 | GOLD_DIM_LOCAL_ASSET.WAREHOUSE_AUDIT | GOLD_DIM_LOCAL_ASSET | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_DIM_LOCAL_ASSET.SCHEMA | GOLD_DIM_LOCAL_ASSET | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_DIM_LOCAL_ASSET.KEY_COVERAGE | GOLD_DIM_LOCAL_ASSET | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.BranchLocalAsset", "staging_key": ["local_asset_id"], "target_table": "gold.DimLocalAsset", "target_key": ["LocalAssetID"], "target_filter": "active"} |
+| GOLD_DIM_LOCAL_ASSET.DUPLICATE_KEYS | GOLD_DIM_LOCAL_ASSET | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.DimLocalAsset", "target_key": ["LocalAssetID"], "target_filter": "active"} |
 | GOLD_BRIDGE_PRODUCT_SUPPLIER.WAREHOUSE_AUDIT | GOLD_BRIDGE_PRODUCT_SUPPLIER | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_BRIDGE_PRODUCT_SUPPLIER.SCHEMA | GOLD_BRIDGE_PRODUCT_SUPPLIER | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_BRIDGE_PRODUCT_SUPPLIER.KEY_COVERAGE | GOLD_BRIDGE_PRODUCT_SUPPLIER | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.ProductSupplier", "staging_key": ["product_id", "supplier_id"], "target_table": "gold.BridgeProductSupplier", "target_key": ["ProductID", "SupplierID"], "target_filter": "active"} |
+| GOLD_BRIDGE_PRODUCT_SUPPLIER.DUPLICATE_KEYS | GOLD_BRIDGE_PRODUCT_SUPPLIER | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.BridgeProductSupplier", "target_key": ["ProductID", "SupplierID"], "target_filter": "active"} |
 | GOLD_BRIDGE_PRODUCT_SUPPLIER.UNKNOWN_MEMBERS | GOLD_BRIDGE_PRODUCT_SUPPLIER | RECON_UNKNOWN_MEMBERS | ERROR | Yes |  |  |
 | GOLD_FACT_SALES.WAREHOUSE_AUDIT | GOLD_FACT_SALES | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FACT_SALES.SCHEMA | GOLD_FACT_SALES | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_FACT_SALES.KEY_COVERAGE | GOLD_FACT_SALES | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.SalesTransaction", "staging_key": ["sale_id"], "target_table": "gold.FactSales", "target_key": ["SaleID"], "target_filter": "active"} |
+| GOLD_FACT_SALES.DUPLICATE_KEYS | GOLD_FACT_SALES | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.FactSales", "target_key": ["SaleID"], "target_filter": "active"} |
+| GOLD_FACT_SALES.EXPECTED_RECORDS | GOLD_FACT_SALES | RECON_EXPECTED_RECORDS | WARNING | No |  | {"target_table": "gold.FactSales", "date_key": "SaleDateKey", "member_key": "SiteKey", "expected_members": {"table": "gold.DimSite", "key": "SiteKey", "filter_column": "IsBranch", "label": "SiteID"}} |
+| GOLD_FACT_SALES.SALES_ANOMALY | GOLD_FACT_SALES | RECON_ANOMALY | WARNING | No | 1 | Tolerance justified: Daily takings are right-skewed; warn when more than 1% of branch-days are outliers |
 | GOLD_FACT_SALES.TOTAL_AMOUNT | GOLD_FACT_SALES | RECON_MEASURE_TOTAL | ERROR | Yes | 0.01 | Tolerance justified: Cent rounding |
 | GOLD_FACT_SALES.UNKNOWN_MEMBERS | GOLD_FACT_SALES | RECON_UNKNOWN_MEMBERS | ERROR | Yes |  |  |
 | GOLD_FACT_SALES_LINE.WAREHOUSE_AUDIT | GOLD_FACT_SALES_LINE | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FACT_SALES_LINE.SCHEMA | GOLD_FACT_SALES_LINE | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_FACT_SALES_LINE.KEY_COVERAGE | GOLD_FACT_SALES_LINE | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.SalesLine", "staging_key": ["sale_id", "product_id"], "target_table": "gold.FactSalesLine", "target_key": ["SaleID", "ProductID"], "target_filter": "active"} |
+| GOLD_FACT_SALES_LINE.DUPLICATE_KEYS | GOLD_FACT_SALES_LINE | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.FactSalesLine", "target_key": ["SaleID", "ProductID"], "target_filter": "active"} |
 | GOLD_FACT_SALES_LINE.LINE_NET_TOTAL | GOLD_FACT_SALES_LINE | RECON_MEASURE_TOTAL | ERROR | Yes | 0.01 | Tolerance justified: Cent rounding |
 | GOLD_FACT_SALES_LINE.UNKNOWN_MEMBERS | GOLD_FACT_SALES_LINE | RECON_UNKNOWN_MEMBERS | ERROR | Yes |  |  |
 | GOLD_FACT_INVENTORY_MOVEMENT.WAREHOUSE_AUDIT | GOLD_FACT_INVENTORY_MOVEMENT | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FACT_INVENTORY_MOVEMENT.SCHEMA | GOLD_FACT_INVENTORY_MOVEMENT | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_FACT_INVENTORY_MOVEMENT.KEY_COVERAGE | GOLD_FACT_INVENTORY_MOVEMENT | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.InventoryMovement", "staging_key": ["movement_id"], "target_table": "gold.FactInventoryMovement", "target_key": ["MovementID"], "target_filter": "active"} |
+| GOLD_FACT_INVENTORY_MOVEMENT.DUPLICATE_KEYS | GOLD_FACT_INVENTORY_MOVEMENT | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.FactInventoryMovement", "target_key": ["MovementID"], "target_filter": "active"} |
 | GOLD_FACT_INVENTORY_MOVEMENT.QUANTITY_TOTAL | GOLD_FACT_INVENTORY_MOVEMENT | RECON_MEASURE_TOTAL | CRITICAL | Yes | 0 | {"staging_table": "silver.InventoryMovement", "staging_measure": "quantity", "target_table": "gold.FactInventoryMovement", "target_measure": "Quantity"} |
 | GOLD_FACT_INVENTORY_MOVEMENT.UNKNOWN_MEMBERS | GOLD_FACT_INVENTORY_MOVEMENT | RECON_UNKNOWN_MEMBERS | ERROR | Yes |  |  |
 | GOLD_FACT_INVENTORY_SNAPSHOT.WAREHOUSE_AUDIT | GOLD_FACT_INVENTORY_SNAPSHOT | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FACT_INVENTORY_SNAPSHOT.SCHEMA | GOLD_FACT_INVENTORY_SNAPSHOT | RECON_SCHEMA | CRITICAL | Yes |  |  |
+| GOLD_FEATURE_DEMAND_WEEKLY.WAREHOUSE_AUDIT | GOLD_FEATURE_DEMAND_WEEKLY | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FEATURE_DEMAND_WEEKLY.SCHEMA | GOLD_FEATURE_DEMAND_WEEKLY | RECON_SCHEMA | CRITICAL | Yes |  |  |
+| GOLD_FEATURE_DEMAND_WEEKLY.DUPLICATE_KEYS | GOLD_FEATURE_DEMAND_WEEKLY | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.FeatureDemandWeekly", "target_key": ["WeekStartDateKey", "SiteKey", "ProductID"], "target_filter": "all"} |
+| GOLD_FEATURE_DEMAND_WEEKLY.LABEL_TOTAL | GOLD_FEATURE_DEMAND_WEEKLY | RECON_CROSS_TOTAL | ERROR | Yes |  | {"source_table": "gold.FactSalesLine", "source_measure": "Quantity", "source_active_only": true, "target_table": "gold.FeatureDemandWeekly", "target_measure": "TargetQuantity"} |
 | GOLD_FACT_PURCHASE_ORDER.WAREHOUSE_AUDIT | GOLD_FACT_PURCHASE_ORDER | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FACT_PURCHASE_ORDER.SCHEMA | GOLD_FACT_PURCHASE_ORDER | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_FACT_PURCHASE_ORDER.KEY_COVERAGE | GOLD_FACT_PURCHASE_ORDER | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.PurchaseOrder", "staging_key": ["po_id"], "target_table": "gold.FactPurchaseOrder", "target_key": ["POID"], "target_filter": "active"} |
+| GOLD_FACT_PURCHASE_ORDER.DUPLICATE_KEYS | GOLD_FACT_PURCHASE_ORDER | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.FactPurchaseOrder", "target_key": ["POID"], "target_filter": "active"} |
 | GOLD_FACT_PURCHASE_ORDER.PO_VALUE_TOTAL | GOLD_FACT_PURCHASE_ORDER | RECON_MEASURE_TOTAL | ERROR | Yes | 0.01 | Tolerance justified: Cent rounding |
 | GOLD_FACT_PURCHASE_ORDER.UNKNOWN_MEMBERS | GOLD_FACT_PURCHASE_ORDER | RECON_UNKNOWN_MEMBERS | ERROR | Yes |  |  |
 | GOLD_FACT_PURCHASE_ORDER_LINE.WAREHOUSE_AUDIT | GOLD_FACT_PURCHASE_ORDER_LINE | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FACT_PURCHASE_ORDER_LINE.SCHEMA | GOLD_FACT_PURCHASE_ORDER_LINE | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_FACT_PURCHASE_ORDER_LINE.KEY_COVERAGE | GOLD_FACT_PURCHASE_ORDER_LINE | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.PurchaseOrderLine", "staging_key": ["po_id", "product_id"], "target_table": "gold.FactPurchaseOrderLine", "target_key": ["POID", "ProductID"], "target_filter": "active"} |
+| GOLD_FACT_PURCHASE_ORDER_LINE.DUPLICATE_KEYS | GOLD_FACT_PURCHASE_ORDER_LINE | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.FactPurchaseOrderLine", "target_key": ["POID", "ProductID"], "target_filter": "active"} |
 | GOLD_FACT_PURCHASE_ORDER_LINE.LINE_VALUE_TOTAL | GOLD_FACT_PURCHASE_ORDER_LINE | RECON_MEASURE_TOTAL | ERROR | Yes | 0.01 | Tolerance justified: Cent rounding |
 | GOLD_FACT_PURCHASE_ORDER_LINE.UNKNOWN_MEMBERS | GOLD_FACT_PURCHASE_ORDER_LINE | RECON_UNKNOWN_MEMBERS | ERROR | Yes |  |  |
 | GOLD_FACT_GOODS_RECEIPT.WAREHOUSE_AUDIT | GOLD_FACT_GOODS_RECEIPT | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FACT_GOODS_RECEIPT.SCHEMA | GOLD_FACT_GOODS_RECEIPT | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_FACT_GOODS_RECEIPT.KEY_COVERAGE | GOLD_FACT_GOODS_RECEIPT | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.GoodsReceipt", "staging_key": ["grn_id"], "target_table": "gold.FactGoodsReceipt", "target_key": ["GRNID"], "target_filter": "active"} |
+| GOLD_FACT_GOODS_RECEIPT.DUPLICATE_KEYS | GOLD_FACT_GOODS_RECEIPT | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.FactGoodsReceipt", "target_key": ["GRNID"], "target_filter": "active"} |
 | GOLD_FACT_GOODS_RECEIPT.UNKNOWN_MEMBERS | GOLD_FACT_GOODS_RECEIPT | RECON_UNKNOWN_MEMBERS | ERROR | Yes |  |  |
 | GOLD_FACT_SUPPLIER_INVOICE.WAREHOUSE_AUDIT | GOLD_FACT_SUPPLIER_INVOICE | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FACT_SUPPLIER_INVOICE.SCHEMA | GOLD_FACT_SUPPLIER_INVOICE | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_FACT_SUPPLIER_INVOICE.KEY_COVERAGE | GOLD_FACT_SUPPLIER_INVOICE | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.SupplierInvoice", "staging_key": ["invoice_id"], "target_table": "gold.FactSupplierInvoice", "target_key": ["InvoiceID"], "target_filter": "active"} |
+| GOLD_FACT_SUPPLIER_INVOICE.DUPLICATE_KEYS | GOLD_FACT_SUPPLIER_INVOICE | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.FactSupplierInvoice", "target_key": ["InvoiceID"], "target_filter": "active"} |
 | GOLD_FACT_SUPPLIER_INVOICE.TOTAL_AMOUNT | GOLD_FACT_SUPPLIER_INVOICE | RECON_MEASURE_TOTAL | ERROR | Yes | 0.01 | Tolerance justified: Cent rounding |
 | GOLD_FACT_SUPPLIER_INVOICE.UNKNOWN_MEMBERS | GOLD_FACT_SUPPLIER_INVOICE | RECON_UNKNOWN_MEMBERS | ERROR | Yes |  |  |
 | GOLD_FACT_SUPPLIER_REBATE.WAREHOUSE_AUDIT | GOLD_FACT_SUPPLIER_REBATE | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FACT_SUPPLIER_REBATE.SCHEMA | GOLD_FACT_SUPPLIER_REBATE | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_FACT_SUPPLIER_REBATE.KEY_COVERAGE | GOLD_FACT_SUPPLIER_REBATE | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.SupplierRebate", "staging_key": ["supplier_id", "period"], "target_table": "gold.FactSupplierRebate", "target_key": ["SupplierID", "RebatePeriod"], "target_filter": "active"} |
+| GOLD_FACT_SUPPLIER_REBATE.DUPLICATE_KEYS | GOLD_FACT_SUPPLIER_REBATE | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.FactSupplierRebate", "target_key": ["SupplierID", "RebatePeriod"], "target_filter": "active"} |
 | GOLD_FACT_SUPPLIER_REBATE.REBATE_TOTAL | GOLD_FACT_SUPPLIER_REBATE | RECON_MEASURE_TOTAL | ERROR | Yes | 0.01 | Tolerance justified: Cent rounding |
 | GOLD_FACT_SUPPLIER_REBATE.UNKNOWN_MEMBERS | GOLD_FACT_SUPPLIER_REBATE | RECON_UNKNOWN_MEMBERS | ERROR | Yes |  |  |
 | GOLD_FACT_GENERAL_LEDGER.WAREHOUSE_AUDIT | GOLD_FACT_GENERAL_LEDGER | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FACT_GENERAL_LEDGER.SCHEMA | GOLD_FACT_GENERAL_LEDGER | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_FACT_GENERAL_LEDGER.KEY_COVERAGE | GOLD_FACT_GENERAL_LEDGER | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.GeneralLedger", "staging_key": ["journal_id"], "target_table": "gold.FactGeneralLedger", "target_key": ["JournalID"], "target_filter": "active"} |
+| GOLD_FACT_GENERAL_LEDGER.DUPLICATE_KEYS | GOLD_FACT_GENERAL_LEDGER | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.FactGeneralLedger", "target_key": ["JournalID", "JournalLineNumber"], "target_filter": "active"} |
 | GOLD_FACT_GENERAL_LEDGER.DEBIT_TOTAL | GOLD_FACT_GENERAL_LEDGER | RECON_MEASURE_TOTAL | CRITICAL | Yes | 0.01 | Tolerance justified: Cent rounding |
 | GOLD_FACT_GENERAL_LEDGER.CREDIT_TOTAL | GOLD_FACT_GENERAL_LEDGER | RECON_MEASURE_TOTAL | CRITICAL | Yes | 0.01 | Tolerance justified: Cent rounding |
 | GOLD_FACT_GENERAL_LEDGER.LEDGER_BALANCE | GOLD_FACT_GENERAL_LEDGER | RECON_GL_BALANCE | CRITICAL | Yes | 0.01 | Tolerance justified: Cent rounding |
 | GOLD_FACT_GENERAL_LEDGER.UNKNOWN_MEMBERS | GOLD_FACT_GENERAL_LEDGER | RECON_UNKNOWN_MEMBERS | CRITICAL | Yes |  |  |
 | GOLD_FACT_OPERATING_EXPENSE.WAREHOUSE_AUDIT | GOLD_FACT_OPERATING_EXPENSE | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FACT_OPERATING_EXPENSE.SCHEMA | GOLD_FACT_OPERATING_EXPENSE | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_FACT_OPERATING_EXPENSE.KEY_COVERAGE | GOLD_FACT_OPERATING_EXPENSE | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.OperatingExpense", "staging_key": ["expense_id"], "target_table": "gold.FactOperatingExpense", "target_key": ["ExpenseID"], "target_filter": "active"} |
+| GOLD_FACT_OPERATING_EXPENSE.DUPLICATE_KEYS | GOLD_FACT_OPERATING_EXPENSE | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.FactOperatingExpense", "target_key": ["ExpenseID"], "target_filter": "active"} |
 | GOLD_FACT_OPERATING_EXPENSE.AMOUNT_TOTAL | GOLD_FACT_OPERATING_EXPENSE | RECON_MEASURE_TOTAL | ERROR | Yes | 0.01 | Tolerance justified: Cent rounding |
 | GOLD_FACT_OPERATING_EXPENSE.UNKNOWN_MEMBERS | GOLD_FACT_OPERATING_EXPENSE | RECON_UNKNOWN_MEMBERS | ERROR | Yes |  |  |
 | GOLD_FACT_ASSET_DEPRECIATION.WAREHOUSE_AUDIT | GOLD_FACT_ASSET_DEPRECIATION | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FACT_ASSET_DEPRECIATION.SCHEMA | GOLD_FACT_ASSET_DEPRECIATION | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_FACT_BRANCH_CASHUP.WAREHOUSE_AUDIT | GOLD_FACT_BRANCH_CASHUP | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| GOLD_FACT_BRANCH_CASHUP.SCHEMA | GOLD_FACT_BRANCH_CASHUP | RECON_SCHEMA | CRITICAL | Yes |  |  |
 | GOLD_FACT_BRANCH_CASHUP.KEY_COVERAGE | GOLD_FACT_BRANCH_CASHUP | RECON_KEY_COVERAGE | CRITICAL | Yes |  | {"staging_table": "silver.BranchCashup", "staging_key": ["shift_id"], "target_table": "gold.FactBranchCashup", "target_key": ["ShiftID"], "target_filter": "all"} |
+| GOLD_FACT_BRANCH_CASHUP.DUPLICATE_KEYS | GOLD_FACT_BRANCH_CASHUP | RECON_DUPLICATE_KEYS | CRITICAL | Yes |  | {"target_table": "gold.FactBranchCashup", "target_key": ["ShiftID"], "target_filter": "all"} |
+| GOLD_FACT_BRANCH_CASHUP.EXPECTED_RECORDS | GOLD_FACT_BRANCH_CASHUP | RECON_EXPECTED_RECORDS | WARNING | No |  | {"target_table": "gold.FactBranchCashup", "date_key": "BusinessDateKey", "member_key": "SiteKey", "expected_members": {"table": "gold.DimSite", "key": "SiteKey", "filter_column": "IsBranch", "label": "SiteID"}} |
+| GOLD_FACT_BRANCH_CASHUP.CASH_VARIANCE_ANOMALY | GOLD_FACT_BRANCH_CASHUP | RECON_ANOMALY | WARNING | No |  | {"target_table": "gold.FactBranchCashup", "date_key": "BusinessDateKey", "measure": "CashVariance", "group_key": "SiteKey", "group_label": {"table": "gold.DimSite", "key": "SiteKey", "column": "SiteID"}, "baseline": "pooled", "z_threshold": 3.5, "min_points": 20} |
 | GOLD_FACT_BRANCH_CASHUP.UNKNOWN_MEMBERS | GOLD_FACT_BRANCH_CASHUP | RECON_UNKNOWN_MEMBERS | ERROR | Yes |  |  |
 | PRESENTATION_REPLENISHMENT_PLAN.WAREHOUSE_AUDIT | PRESENTATION_REPLENISHMENT_PLAN | RECON_WAREHOUSE_AUDIT | CRITICAL | Yes |  |  |
+| PRESENTATION_REPLENISHMENT_PLAN.SCHEMA | PRESENTATION_REPLENISHMENT_PLAN | RECON_SCHEMA | CRITICAL | Yes |  |  |
 
 ## Business-rule parameters (meta.Setting)
 

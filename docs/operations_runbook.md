@@ -45,6 +45,8 @@ SELECT * FROM audit.vw_ValidationFailureDetail WHERE SourceName = '<source>';
 SELECT * FROM audit.vw_SourceFreshness WHERE FreshnessStatus <> 'FRESH';
 SELECT * FROM audit.vw_ProcessingDuration WHERE DurationStatus = 'SLOW';
 SELECT * FROM audit.vw_StalledExecutions;
+SELECT * FROM audit.vw_QualityResultsByDimension;            -- last run per quality dimension
+SELECT * FROM audit.vw_DataAnomalies ORDER BY Score DESC;    -- values flagged as anomalies
 ```
 
 `audit.vw_ExecutionErrors` gives, for each problem: source, file, run, sheet, row, column, rule,
@@ -145,5 +147,9 @@ that source, including versions held from older runs, before the gate decides.
 | `Execution plan rejected` | Metadata references an unapproved handler or wrong target | Fix `config/pipeline.yaml`, re-sync. |
 | Mapping BLOCKED, category ELIGIBILITY | Source file blocked, held or never ingested | `python scripts/trace_file.py <source>`. |
 | `UNKNOWN_MEMBERS` control failed | Fact references a key missing from a dimension | Load/correct the master data, re-run. |
+| `SCHEMA` control failed | A table no longer matches its contract or lineage (schema drift) | The detail names each column; fix the table in a new migration or correct the contract ([data_quality.md](data_quality.md)). |
+| `VOLUME` warning | Far fewer or more rows than recent runs | Confirm with the data owner that the extract is complete before reporting. |
+| `EXPECTED_RECORDS` warning | A branch has no record for a day (for example a missing cash-up) | The detail lists branch and date; chase the document or check why it was quarantined. |
+| `ANOMALY` warning | A daily total is far from its history | Review `audit.vw_DataAnomalies`; confirm a genuine event or correct the source. |
 | `HASH_LINEAGE` control failed | RAW file changed after ingestion | Investigate; restore the original or re-ingest a new version. Never load a changed file. |
 | SQL step BLOCKED on the status board | Gate held, coverage incomplete or tests failing | The step detail names the reason. |

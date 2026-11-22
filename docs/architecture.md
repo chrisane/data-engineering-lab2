@@ -56,7 +56,7 @@ flowchart TD
 | Quarantine | `data/quarantine/<run_id>/` | Copies of rejected or failed files with an `.errors.csv` report. |
 | Validation evidence | `logs/*.csv` | Every check, failure, coverage result and gate decision, with validation IDs. |
 | **Silver** | `silver` schema | One table per source, columns derived from the source contract; every row carries run ID, file, file hash and source row number. Append-only per file version. |
-| **Gold** | `gold` schema | Conformed dimensions (SCD1/SCD2) and facts at declared grains, with lineage, row hashes and soft deletes. |
+| **Gold** | `gold` schema | Conformed dimensions (SCD1/SCD2) and facts at declared grains, with lineage, row hashes and soft deletes; the ML feature table for demand forecasting. |
 | **Presentation** | `presentation` schema (views, one table) | Star schema for Power BI plus business-rule and exception views; the only layer reports read. |
 | Metadata | `meta` schema | Catalogue synchronised from configuration: sources, data dictionary, mappings, handlers, dependencies, controls, business rules, lineage, settings, migrations. |
 | Audit | `audit` schema | Pipeline/mapping executions, load and warehouse audits, reconciliation results, actionable errors, validation outcomes, retention actions; monitoring views. |
@@ -67,12 +67,15 @@ flowchart TD
 |---|---|---|---|
 | **Bronze** | Raw files exactly as received (`data/raw/<run_id>/`), every version kept | Ingestion: format and content verified, SHA-256 recorded, duplicates detected | (files, no SQL layer) |
 | **Silver** | Validated, typed source data, one table per source with source column names | Validation, coverage check and the load-eligibility gate; only eligible file versions load | `SILVER`, `SILVER_<TABLE>` |
-| **Gold** | Conformed dimensions and facts (Kimball star schemas) with history | Load procedures, then reconciliation controls (CRITICAL/ERROR stop the pipeline) | `GOLD`, `GOLD_DIM_*` / `GOLD_FACT_*` |
+| **Gold** | Conformed dimensions and facts (Kimball star schemas) with history; ML feature table (`gold.FeatureDemandWeekly`) | Load procedures, then reconciliation controls (CRITICAL/ERROR stop the pipeline) | `GOLD`, `GOLD_DIM_*` / `GOLD_FACT_*` / `GOLD_FEATURE_*` |
 | **Presentation** | Report-facing views over gold, business-rule and exception views, the materialised replenishment plan | Views (always current); `presentation.ReplenishmentPlan` rebuilt each run | `PRESENTATION`, `PRESENTATION_*` |
 
 Supporting every tier: **quarantine** (`data/quarantine/`) for bronze files that fail ingestion or
 validation (they never reach silver), **validation evidence** (`logs/*.csv`) recording each promotion
 decision, and the **`meta`** (governance) and **`audit`** (observability) schemas.
+
+Every promotion is guarded by data-quality checks covering eight dimensions (freshness, volume, schema,
+completeness, duplicate, accuracy, consistency, anomaly); see [data_quality.md](data_quality.md).
 
 Design choices:
 

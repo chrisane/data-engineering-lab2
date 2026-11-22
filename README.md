@@ -443,7 +443,8 @@ See [docs/developer_setup.md](docs/developer_setup.md) for the full guide.
 | Document | Content |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | Architecture diagram, layers, components, decisions |
-| [docs/warehouse_design.md](docs/warehouse_design.md) | Star schemas, fact grains, SCD, corrections, late-arriving data |
+| [docs/warehouse_design.md](docs/warehouse_design.md) | Star schemas, fact grains, SCD, corrections, late-arriving data, ML feature table |
+| [docs/data_quality.md](docs/data_quality.md) | The eight quality dimensions, where each is checked, coverage rules, anomalies |
 | [docs/operations_runbook.md](docs/operations_runbook.md) | Running, monitoring, recovery, troubleshooting, retention |
 | [docs/developer_setup.md](docs/developer_setup.md) | Set-up, tests, adding a new source |
 | [docs/sql_migrations.md](docs/sql_migrations.md) | Migration runner and rules |

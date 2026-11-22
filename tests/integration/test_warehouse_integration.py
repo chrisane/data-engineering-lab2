@@ -561,3 +561,159 @@ def test_personal_data_is_masked_for_report_readers(database, first_run):
 
     finally:
         connection.close()
+
+
+# ---------------------------------------------------------
+# Data-quality dimensions
+# ---------------------------------------------------------
+
+
+def test_every_quality_dimension_is_checked(database, first_run):
+
+    _, pipeline_id = first_run
+    results = query(
+        database,
+        """
+        SELECT q.DimensionCode, COUNT(*),
+               SUM(IIF(r.CheckStatus = 'FAIL' AND r.Severity IN ('CRITICAL', 'ERROR'), 1, 0))
+        FROM audit.ReconciliationResult AS r
+        JOIN meta.ReconciliationControl AS c ON c.ControlCode = r.ControlCode OR r.ControlCode LIKE c.ControlCode + '.%'
+        JOIN meta.ExecutionHandler AS h ON h.HandlerID = c.HandlerID
+        JOIN meta.QualityCheckType AS q ON q.CheckType = h.HandlerCode
+        WHERE r.PipelineExecutionID = ?
+        GROUP BY q.DimensionCode""",
+        pipeline_id,
+    )
+    dimensions = {row[0] for row in query(database, "SELECT DimensionCode FROM meta.QualityDimension")}
+
+    assert len(dimensions) == 8
+    assert {row[0] for row in results} == dimensions
+    assert all(row[2] == 0 for row in results)
+    assert not query(
+        database,
+        "SELECT 1 FROM audit.vw_QualityCheckCoverage WHERE LoadLayer = 'SILVER' "
+        "AND DimensionCode IN ('FRESHNESS', 'VOLUME', 'SCHEMA', 'COMPLETENESS') "
+        "AND CoverageStatus = 'NOT_COVERED'",
+    )
+
+
+def test_quality_checks_flag_the_planted_cashup_exceptions(database, first_run):
+
+    _, pipeline_id = first_run
+    missing = query(
+        database,
+        "SELECT CheckStatus, Details FROM audit.ReconciliationResult WHERE PipelineExecutionID = ? "
+        "AND ControlCode = 'GOLD_FACT_BRANCH_CASHUP.EXPECTED_RECORDS'",
+        pipeline_id,
+    )[0]
+    anomalies = {
+        (r[0], r[1])
+        for r in query(
+            database,
+            "SELECT GroupLabel, DateKey FROM audit.DataAnomaly WHERE PipelineExecutionID = ? "
+            "AND ControlCode = 'GOLD_FACT_BRANCH_CASHUP.CASH_VARIANCE_ANOMALY'",
+            pipeline_id,
+        )
+    }
+
+    assert missing[0] == "FAIL"
+    assert "BR005 2026-09-24" in missing[1] and "BR012 2026-09-27" in missing[1]
+    assert {("BR003", 20260922), ("BR007", 20260925)} <= anomalies
+
+
+def control_context(database, code: str, pipeline_id: int):
+
+    from metadata_sync import load_registry_config, load_yaml
+    from orchestrator import RunContext, load_plan
+
+    plan, _ = load_plan()
+    mapping = next(m for m in plan if m["code"] == code)
+
+    return RunContext(pipeline_id, load_registry_config(), load_yaml("pipeline.yaml"), [], mapping), mapping
+
+
+def test_schema_check_detects_drift(database, first_run):
+
+    from reconciliation import control_schema
+
+    context, mapping = control_context(database, "SILVER_SITE", first_run[1])
+    control = next(c for c in mapping["controls"] if c["name"] == "SCHEMA")
+    connection = database()
+
+    try:
+        cursor = connection.cursor()
+        assert control_schema(cursor, control, context)[0] == "PASS"
+        cursor.execute("ALTER TABLE silver.Site ADD UnexpectedColumn INT NULL")
+        status, _, _, details, _ = control_schema(cursor, control, context)
+        assert status == "FAIL" and "unexpected column UnexpectedColumn" in details
+    finally:
+        connection.rollback()
+        connection.close()
+
+
+def test_volume_check_detects_a_drop(database, first_run):
+
+    from reconciliation import control_volume
+
+    context, mapping = control_context(database, "SILVER_SALES_TRANSACTION", first_run[1])
+    control = next(c for c in mapping["controls"] if c["name"] == "VOLUME")
+    connection = database()
+
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "INSERT INTO audit.PipelineExecution (ExecutionStatus) OUTPUT INSERTED.PipelineExecutionID "
+            "VALUES ('STARTED')"
+        )
+        context.pipeline_id = cursor.fetchone()[0]
+        cursor.execute(
+            "INSERT INTO audit.PipelineSourceBatch (PipelineExecutionID, SourceName, FileName, IngestionRunID, "
+            "SourceFileHash, Decision, ValidatedRowCount) VALUES (?, 'sales_transactions', 'truncated.xlsx', "
+            "'ING-29991231_000000', ?, 'ELIGIBLE', 100)",
+            context.pipeline_id,
+            "e" * 64,
+        )
+        status, observed, expected, details, _ = control_volume(cursor, control, context)
+        assert status == "FAIL" and observed == 100 and expected > 100 * 2
+    finally:
+        connection.rollback()
+        connection.close()
+
+
+# ---------------------------------------------------------
+# ML feature table
+# ---------------------------------------------------------
+
+
+def test_demand_features_are_complete_and_point_in_time_correct(database, first_run):
+
+    shape = query(
+        database,
+        "SELECT COUNT(*), COUNT(DISTINCT CONCAT(SiteKey, '|', ProductID)), COUNT(DISTINCT WeekStartDateKey), "
+        "SUM(IIF(DatasetSplit = 'INFERENCE', 1, 0)) FROM gold.FeatureDemandWeekly",
+    )[0]
+    leaks = query(
+        database,
+        """
+        WITH f AS (
+            SELECT *, LAG(TargetQuantity) OVER (PARTITION BY SiteKey, ProductID ORDER BY WeekStartDateKey) AS Previous,
+                   AVG(CONVERT(DECIMAL(19, 4), TargetQuantity)) OVER (PARTITION BY SiteKey, ProductID
+                       ORDER BY WeekStartDateKey ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) AS Previous4
+            FROM gold.FeatureDemandWeekly)
+        SELECT SUM(IIF(HistoryWeeks >= 1 AND QtyLag1W <> Previous, 1, 0)),
+               SUM(IIF(HistoryWeeks >= 4 AND ABS(QtyRolling4WAvg - Previous4) > 0.0001, 1, 0)),
+               SUM(IIF(HistoryWeeks = 0 AND QtyLag1W IS NOT NULL, 1, 0))
+        FROM f""",
+    )[0]
+    labels, sales = query(
+        database,
+        "SELECT (SELECT SUM(TargetQuantity) FROM gold.FeatureDemandWeekly), "
+        "(SELECT SUM(Quantity) FROM gold.FactSalesLine WHERE IsDeletedInSource = 0)",
+    )[0]
+
+    rows, combinations, weeks, inference = shape
+    assert rows == combinations * weeks
+    assert inference == combinations
+    assert tuple(leaks) == (0, 0, 0)
+    assert labels == sales
+    assert query(database, "SELECT COUNT(*) FROM presentation.vw_DemandForecastFeatures")[0][0] == rows

@@ -95,26 +95,94 @@ handlers:
   FACT_BRANCH_CASHUP:       {type: STORED_PROCEDURE, approved: true, description: gold.usp_LoadFactBranchCashup}
   BRIDGE_PRODUCT_SUPPLIER:  {type: STORED_PROCEDURE, approved: true, description: gold.usp_LoadBridgeProductSupplier}
   PRESENTATION_REPLENISHMENT_PLAN:  {type: STORED_PROCEDURE, approved: true, description: presentation.usp_BuildReplenishmentPlan}
-  # Reconciliation handlers (post-load quality gates)
-  RECON_ROW_COUNT:        {type: RECONCILIATION, approved: true, description: Validated source rows equal staged rows for the batch}
-  RECON_HASH_LINEAGE:     {type: RECONCILIATION, approved: true, description: Staged rows carry the gate-approved file hash and complete lineage}
-  RECON_FRESHNESS:        {type: RECONCILIATION, approved: true, description: Latest new data for the source is within its freshness threshold}
-  RECON_WAREHOUSE_AUDIT:  {type: RECONCILIATION, approved: true, description: Warehouse execution counts reconcile to the staged batch}
-  RECON_KEY_COVERAGE:     {type: RECONCILIATION, approved: true, description: Every staged business key is present (and active) in the target}
-  RECON_MEASURE_TOTAL:    {type: RECONCILIATION, approved: true, description: Staged and warehouse totals of a measure agree within tolerance}
-  RECON_UNKNOWN_MEMBERS:  {type: RECONCILIATION, approved: true, description: Fact rows resolved to Unknown (-1) dimension members}
-  RECON_SCD2_INTEGRITY:   {type: RECONCILIATION, approved: true, description: One current version per key and no overlapping history}
-  RECON_GL_BALANCE:       {type: RECONCILIATION, approved: true, description: Every journal and the ledger as a whole balance}
-  RECON_SUPPLIER:         {type: RECONCILIATION, approved: true, description: Existing supplier reconciliation procedure (audit.usp_ReconcileSupplier)}
+  FEATURE_DEMAND_WEEKLY:    {type: STORED_PROCEDURE, approved: true, description: gold.usp_BuildFeatureDemandWeekly}
+  # Reconciliation handlers (post-load quality gates). Each proves one
+  # data-quality dimension (quality_dimensions below).
+  RECON_ROW_COUNT:        {type: RECONCILIATION, approved: true, dimension: COMPLETENESS, description: Validated source rows equal staged rows for the batch}
+  RECON_HASH_LINEAGE:     {type: RECONCILIATION, approved: true, dimension: CONSISTENCY, description: Staged rows carry the gate-approved file hash and complete lineage}
+  RECON_FRESHNESS:        {type: RECONCILIATION, approved: true, dimension: FRESHNESS, description: Latest new data for the source is within its freshness threshold}
+  RECON_WAREHOUSE_AUDIT:  {type: RECONCILIATION, approved: true, dimension: COMPLETENESS, description: Warehouse execution counts reconcile to the staged batch}
+  RECON_KEY_COVERAGE:     {type: RECONCILIATION, approved: true, dimension: COMPLETENESS, description: Every staged business key is present (and active) in the target}
+  RECON_MEASURE_TOTAL:    {type: RECONCILIATION, approved: true, dimension: ACCURACY, description: Staged and warehouse totals of a measure agree within tolerance}
+  RECON_UNKNOWN_MEMBERS:  {type: RECONCILIATION, approved: true, dimension: CONSISTENCY, description: Fact rows resolved to Unknown (-1) dimension members}
+  RECON_SCD2_INTEGRITY:   {type: RECONCILIATION, approved: true, dimension: CONSISTENCY, description: One current version per key and no overlapping history}
+  RECON_GL_BALANCE:       {type: RECONCILIATION, approved: true, dimension: CONSISTENCY, description: Every journal and the ledger as a whole balance}
+  RECON_SUPPLIER:         {type: RECONCILIATION, approved: true, dimension: CONSISTENCY, description: Existing supplier reconciliation procedure (audit.usp_ReconcileSupplier)}
+  RECON_SCHEMA:           {type: RECONCILIATION, approved: true, dimension: SCHEMA, description: The target table has the columns (and for silver the types) its contract or lineage declares}
+  RECON_VOLUME:           {type: RECONCILIATION, approved: true, dimension: VOLUME, description: Rows selected for loading are in line with recent runs}
+  RECON_DUPLICATE_KEYS:   {type: RECONCILIATION, approved: true, dimension: DUPLICATE, description: No business key occurs more than once among the target's active rows}
+  RECON_EXPECTED_RECORDS: {type: RECONCILIATION, approved: true, dimension: COMPLETENESS, description: Every expected member (for example each branch) has a record for every date in range}
+  RECON_ANOMALY:          {type: RECONCILIATION, approved: true, dimension: ANOMALY, description: Period totals of a measure that deviate strongly from their own history (robust z-score)}
+  RECON_CROSS_TOTAL:      {type: RECONCILIATION, approved: true, dimension: ACCURACY, description: Totals of a measure agree between two warehouse tables}
+
+# ---------------------------------------------------------
+# Data-quality dimensions
+# ---------------------------------------------------------
+# Every check belongs to exactly one dimension: reconciliation handlers
+# above (dimension), validation checks below. Metadata sync rejects a
+# check without a dimension, and requires every SILVER mapping to cover
+# FRESHNESS, VOLUME, SCHEMA and COMPLETENESS and every GOLD and
+# PRESENTATION mapping to cover SCHEMA and COMPLETENESS. The platform as
+# a whole must cover all eight. A mapping that cannot be checked for a
+# required dimension declares `quality_exempt: {DIMENSION: reason}`.
+quality_dimensions:
+  FRESHNESS: New data arrives within the source's expected update interval.
+  VOLUME: Row counts are plausible and in line with previous loads.
+  SCHEMA: Files and tables have the expected sheets, columns and types.
+  COMPLETENESS: Required values, rows and expected records are present and nothing is lost between layers.
+  DUPLICATE: Files and business keys occur only once.
+  ACCURACY: Values are valid and agree with their source, calculations and totals.
+  CONSISTENCY: Related data agrees across fields, tables and layers (references, balances, history).
+  ANOMALY: Values are statistically in line with their own history.
+
+# Dimension of each validation check (rule code in logs/validation_results.csv).
+# Named business rules take their dimension from their kind: calculations
+# and comparisons are ACCURACY, group balances CONSISTENCY.
+validation_check_dimensions:
+  # ingestion outcomes (logs/ingestion_manifest.csv status)
+  EMPTY_FILE: VOLUME
+  INVALID_FORMAT: SCHEMA
+  INVALID_CONTENT: SCHEMA
+  SKIPPED_DUPLICATE: DUPLICATE
+  # structural validation
+  FILE_READABLE: SCHEMA
+  WORKBOOK_READABLE: SCHEMA
+  PDF_READABLE: SCHEMA
+  REQUIRED_SHEET: SCHEMA
+  REQUIRED_COLUMN: SCHEMA
+  REQUIRED_LABEL: SCHEMA
+  UNEXPECTED_COLUMN: SCHEMA
+  DUPLICATE_COLUMN: SCHEMA
+  BLANK_COLUMN_HEADER: SCHEMA
+  TEMPLATE_VERSION: SCHEMA
+  FILENAME_CONVENTION: SCHEMA
+  MINIMUM_ROWS: VOLUME
+  # data validation
+  REQUIRED_VALUE: COMPLETENESS
+  UNIQUE: DUPLICATE
+  DATA_TYPE: SCHEMA
+  DATE_STORED_AS_TEXT: SCHEMA
+  NUMERIC_RANGE: ACCURACY
+  VALID_DATE: ACCURACY
+  ALLOWED_VALUE: ACCURACY
+  PATTERN: ACCURACY
+  REFERENTIAL_INTEGRITY: CONSISTENCY
 
 # Controls applied to every mapping of a layer (unless listed in skip_default_controls).
 default_controls:
   SILVER:
     - {name: ROW_COUNT, handler: RECON_ROW_COUNT, severity: CRITICAL}
     - {name: HASH_LINEAGE, handler: RECON_HASH_LINEAGE, severity: CRITICAL}
+    - {name: SCHEMA, handler: RECON_SCHEMA, severity: CRITICAL}
     - {name: FRESHNESS, handler: RECON_FRESHNESS, severity: WARNING, mandatory: false}
+    - {name: VOLUME, handler: RECON_VOLUME, severity: WARNING, mandatory: false,
+       params: {history_runs: 5, min_ratio: 0.5, max_ratio: 2.0}}
   GOLD:
     - {name: WAREHOUSE_AUDIT, handler: RECON_WAREHOUSE_AUDIT, severity: CRITICAL}
+    - {name: SCHEMA, handler: RECON_SCHEMA, severity: CRITICAL}
+  PRESENTATION:
+    - {name: WAREHOUSE_AUDIT, handler: RECON_WAREHOUSE_AUDIT, severity: CRITICAL}
+    - {name: SCHEMA, handler: RECON_SCHEMA, severity: CRITICAL}
 
 # ---------------------------------------------------------
 # Mappings
@@ -137,6 +205,8 @@ mappings:
     order: 20
     skip_default_controls: [WAREHOUSE_AUDIT]
     description: Calendar 2020-2030 (idempotent; adds missing dates only).
+    quality_exempt:
+      COMPLETENESS: Generated calendar with no source to reconcile; the procedure inserts every date 2020-2030.
     columns:
       DateKey: {rule: "YYYYMMDD integer; -1 = Unknown"}
       Date: {rule: Calendar date}
@@ -168,6 +238,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.Site, staging_key: [site_id], target_table: gold.DimSite, target_key: [SiteID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.DimSite, target_key: [SiteID], target_filter: active}}
     columns:
       SiteKey: {rule: Surrogate key (IDENTITY); -1 = Unknown}
       SiteID: {from: site_id, rule: Business key}
@@ -188,6 +260,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.Department, staging_key: [department_id], target_table: gold.DimDepartment, target_key: [DepartmentID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.DimDepartment, target_key: [DepartmentID], target_filter: active}}
     columns:
       DepartmentKey: {rule: Surrogate key (IDENTITY); -1 = Unknown}
       DepartmentID: {from: department_id, rule: Business key}
@@ -203,6 +277,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.Product, staging_key: [product_id], target_table: gold.DimProduct, target_key: [ProductID], target_filter: current}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.DimProduct, target_key: [ProductID], target_filter: current}}
       - {name: SCD2_INTEGRITY, handler: RECON_SCD2_INTEGRITY, severity: CRITICAL,
          params: {target_table: gold.DimProduct, target_key: ProductID}}
     columns:
@@ -225,6 +301,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.Customer, staging_key: [customer_id], target_table: gold.DimCustomer, target_key: [CustomerID], target_filter: current}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.DimCustomer, target_key: [CustomerID], target_filter: current}}
       - {name: SCD2_INTEGRITY, handler: RECON_SCD2_INTEGRITY, severity: CRITICAL,
          params: {target_table: gold.DimCustomer, target_key: CustomerID}}
     columns:
@@ -245,6 +323,8 @@ mappings:
     depends_on: [SILVER_SUPPLIER]
     controls:
       - {name: SUPPLIER_RECONCILIATION, handler: RECON_SUPPLIER, severity: CRITICAL}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.DimSupplier, target_key: [SupplierID], target_filter: current}}
     columns:
       SupplierKey: {rule: Surrogate key per version (IDENTITY); -1 = Unknown}
       SupplierID: {from: supplier_id, rule: Business key}
@@ -265,6 +345,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.ChartOfAccounts, staging_key: [account_code], target_table: gold.DimAccount, target_key: [AccountCode], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.DimAccount, target_key: [AccountCode], target_filter: active}}
     columns:
       AccountKey: {rule: Surrogate key (IDENTITY); -1 = Unknown}
       AccountCode: {from: account_code, rule: Business key}
@@ -285,6 +367,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.FixedAsset, staging_key: [asset_id], target_table: gold.DimAsset, target_key: [AssetID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.DimAsset, target_key: [AssetID], target_filter: active}}
       - {name: COST_TOTAL, handler: RECON_MEASURE_TOTAL, severity: ERROR, tolerance: 0.01,
          tolerance_reason: Cent rounding,
          params: {staging_table: silver.FixedAsset, staging_measure: acquisition_cost, target_table: gold.DimAsset, target_measure: AcquisitionCost}}
@@ -313,6 +397,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.BranchLocalAsset, staging_key: [local_asset_id], target_table: gold.DimLocalAsset, target_key: [LocalAssetID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.DimLocalAsset, target_key: [LocalAssetID], target_filter: active}}
     columns:
       LocalAssetKey: {rule: Surrogate key (IDENTITY); -1 = Unknown}
       LocalAssetID: {from: local_asset_id, rule: Business key}
@@ -334,6 +420,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.ProductSupplier, staging_key: [product_id, supplier_id], target_table: gold.BridgeProductSupplier, target_key: [ProductID, SupplierID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.BridgeProductSupplier, target_key: [ProductID, SupplierID], target_filter: active}}
       - {name: UNKNOWN_MEMBERS, handler: RECON_UNKNOWN_MEMBERS, severity: ERROR}
     columns:
       ProductSupplierKey: {rule: Surrogate key (IDENTITY)}
@@ -355,6 +443,16 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.SalesTransaction, staging_key: [sale_id], target_table: gold.FactSales, target_key: [SaleID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.FactSales, target_key: [SaleID], target_filter: active}}
+      - {name: EXPECTED_RECORDS, handler: RECON_EXPECTED_RECORDS, severity: WARNING, mandatory: false,
+         params: {target_table: gold.FactSales, date_key: SaleDateKey, member_key: SiteKey, expected_members: {table: gold.DimSite, key: SiteKey, filter_column: IsBranch, label: SiteID}}}
+      - {name: SALES_ANOMALY, handler: RECON_ANOMALY, severity: WARNING, mandatory: false,
+         tolerance: 1, tolerance_type: PERCENT,
+         tolerance_reason: "Daily takings are right-skewed; warn when more than 1% of branch-days are outliers",
+         params: {target_table: gold.FactSales, date_key: SaleDateKey, measure: TotalAmount, group_key: SiteKey,
+                  group_label: {table: gold.DimSite, key: SiteKey, column: SiteID}, baseline: per_group,
+                  z_threshold: 3.5, min_points: 28}}
       - {name: TOTAL_AMOUNT, handler: RECON_MEASURE_TOTAL, severity: ERROR, tolerance: 0.01, tolerance_reason: Cent rounding,
          params: {staging_table: silver.SalesTransaction, staging_measure: total_amount, target_table: gold.FactSales, target_measure: TotalAmount}}
       - {name: UNKNOWN_MEMBERS, handler: RECON_UNKNOWN_MEMBERS, severity: ERROR}
@@ -379,6 +477,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.SalesLine, staging_key: [sale_id, product_id], target_table: gold.FactSalesLine, target_key: [SaleID, ProductID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.FactSalesLine, target_key: [SaleID, ProductID], target_filter: active}}
       - {name: LINE_NET_TOTAL, handler: RECON_MEASURE_TOTAL, severity: ERROR, tolerance: 0.01, tolerance_reason: Cent rounding,
          params: {staging_table: silver.SalesLine, staging_measure: line_net, target_table: gold.FactSalesLine, target_measure: LineNetAmount}}
       - {name: UNKNOWN_MEMBERS, handler: RECON_UNKNOWN_MEMBERS, severity: ERROR}
@@ -408,6 +508,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.InventoryMovement, staging_key: [movement_id], target_table: gold.FactInventoryMovement, target_key: [MovementID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.FactInventoryMovement, target_key: [MovementID], target_filter: active}}
       - {name: QUANTITY_TOTAL, handler: RECON_MEASURE_TOTAL, severity: CRITICAL, tolerance: 0,
          params: {staging_table: silver.InventoryMovement, staging_measure: quantity, target_table: gold.FactInventoryMovement, target_measure: Quantity}}
       - {name: UNKNOWN_MEMBERS, handler: RECON_UNKNOWN_MEMBERS, severity: ERROR}
@@ -440,6 +542,48 @@ mappings:
       ClosingQuantity: {from: gold.FactInventoryMovement.Quantity, rule: Running sum of all movements to month end}
       ClosingValue: {from: gold.DimProduct.StandardCost, rule: ClosingQuantity x current standard cost}
 
+  # ML feature table: one row per branch, product and week, for demand
+  # forecasting. Features use only data from before the week starts
+  # (point-in-time correct); TargetQuantity is the week's sales (the label).
+  - code: GOLD_FEATURE_DEMAND_WEEKLY
+    source: sales_lines
+    target: gold.FeatureDemandWeekly
+    strategy: FULL_REFRESH
+    handler: FEATURE_DEMAND_WEEKLY
+    order: 60
+    depends_on: [GOLD_FACT_SALES_LINE, GOLD_FACT_INVENTORY_MOVEMENT, GOLD_DIM_PRODUCT, GOLD_DIM_SITE, GOLD_DIM_DATE]
+    description: Weekly demand-forecasting features and label per site and product (training and inference rows).
+    controls:
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.FeatureDemandWeekly, target_key: [WeekStartDateKey, SiteKey, ProductID], target_filter: all}}
+      - {name: LABEL_TOTAL, handler: RECON_CROSS_TOTAL, severity: ERROR,
+         params: {source_table: gold.FactSalesLine, source_measure: Quantity, source_active_only: true,
+                  target_table: gold.FeatureDemandWeekly, target_measure: TargetQuantity}}
+    columns:
+      WeekStartDateKey: {from: gold.FactSalesLine.SaleDateKey, rule: "Monday of the week (gold.DimDate); weeks from the first sale to the week after the last complete week"}
+      SiteKey: {from: gold.FactSalesLine.SiteKey, rule: Every site and product that has ever sold gets a row for every week}
+      ProductID: {from: gold.DimProduct.ProductID, rule: Business key (all versions of a product are combined)}
+      ProductKey: {from: gold.DimProduct, rule: Current version of the product}
+      Category: {from: gold.DimProduct.Category, rule: Current version}
+      IsDCStocked: {from: gold.DimProduct.IsDCStocked, rule: Current version}
+      WeekOfYear: {from: gold.DimDate.IsoWeek, rule: ISO week of the week start}
+      MonthNumber: {from: gold.DimDate.MonthNumber, rule: Month of the week start}
+      QuarterNumber: {from: gold.DimDate.QuarterNumber, rule: Quarter of the week start}
+      HistoryWeeks: {rule: Weeks of history before this week (0 for the first week)}
+      QtyLag1W: {from: gold.FactSalesLine.Quantity, rule: Units sold in the previous week; NULL without history}
+      QtyLag2W: {from: gold.FactSalesLine.Quantity, rule: Units sold two weeks before}
+      QtyLag4W: {from: gold.FactSalesLine.Quantity, rule: Units sold four weeks before}
+      QtyRolling4WAvg: {from: gold.FactSalesLine.Quantity, rule: Average weekly units over the previous 4 weeks; NULL with fewer than 4 weeks of history}
+      QtyRolling13WAvg: {from: gold.FactSalesLine.Quantity, rule: Average weekly units over the previous 13 weeks; NULL with fewer than 13}
+      QtyRolling4WStdDev: {from: gold.FactSalesLine.Quantity, rule: Standard deviation of weekly units over the previous 4 weeks}
+      AvgUnitPrice4W: {from: "gold.FactSalesLine.LineNetAmount, Quantity", rule: Net amount / units over the previous 4 weeks; NULL without sales}
+      WeeksSinceLastSale: {from: gold.FactSalesLine, rule: Weeks since the most recent earlier week with a sale; NULL if none}
+      StockOnHandStart: {from: gold.FactInventoryMovement.Quantity, rule: Sum of all movements before the week starts}
+      StockCoverWeeks: {rule: StockOnHandStart / QtyRolling4WAvg; NULL when the average is 0 or unknown}
+      TargetQuantity: {from: gold.FactSalesLine.Quantity, rule: "Label: units sold in the week (so far, for the INFERENCE week); NULL for a week after the data"}
+      IsLabelComplete: {rule: The whole week lies within the loaded sales data}
+      DatasetSplit: {rule: "TRAINING when the label is complete, otherwise INFERENCE"}
+
   - code: GOLD_FACT_PURCHASE_ORDER
     source: purchase_orders
     target: gold.FactPurchaseOrder
@@ -450,6 +594,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.PurchaseOrder, staging_key: [po_id], target_table: gold.FactPurchaseOrder, target_key: [POID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.FactPurchaseOrder, target_key: [POID], target_filter: active}}
       - {name: PO_VALUE_TOTAL, handler: RECON_MEASURE_TOTAL, severity: ERROR, tolerance: 0.01, tolerance_reason: Cent rounding,
          params: {staging_table: silver.PurchaseOrder, staging_measure: po_value, target_table: gold.FactPurchaseOrder, target_measure: POValue}}
       - {name: UNKNOWN_MEMBERS, handler: RECON_UNKNOWN_MEMBERS, severity: ERROR}
@@ -474,6 +620,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.PurchaseOrderLine, staging_key: [po_id, product_id], target_table: gold.FactPurchaseOrderLine, target_key: [POID, ProductID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.FactPurchaseOrderLine, target_key: [POID, ProductID], target_filter: active}}
       - {name: LINE_VALUE_TOTAL, handler: RECON_MEASURE_TOTAL, severity: ERROR, tolerance: 0.01, tolerance_reason: Cent rounding,
          params: {staging_table: silver.PurchaseOrderLine, staging_measure: line_value, target_table: gold.FactPurchaseOrderLine, target_measure: LineValue}}
       - {name: UNKNOWN_MEMBERS, handler: RECON_UNKNOWN_MEMBERS, severity: ERROR}
@@ -499,6 +647,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.GoodsReceipt, staging_key: [grn_id], target_table: gold.FactGoodsReceipt, target_key: [GRNID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.FactGoodsReceipt, target_key: [GRNID], target_filter: active}}
       - {name: UNKNOWN_MEMBERS, handler: RECON_UNKNOWN_MEMBERS, severity: ERROR}
     columns:
       GoodsReceiptKey: {rule: Surrogate key (IDENTITY)}
@@ -520,6 +670,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.SupplierInvoice, staging_key: [invoice_id], target_table: gold.FactSupplierInvoice, target_key: [InvoiceID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.FactSupplierInvoice, target_key: [InvoiceID], target_filter: active}}
       - {name: TOTAL_AMOUNT, handler: RECON_MEASURE_TOTAL, severity: ERROR, tolerance: 0.01, tolerance_reason: Cent rounding,
          params: {staging_table: silver.SupplierInvoice, staging_measure: total_amount, target_table: gold.FactSupplierInvoice, target_measure: TotalAmount}}
       - {name: UNKNOWN_MEMBERS, handler: RECON_UNKNOWN_MEMBERS, severity: ERROR}
@@ -548,6 +700,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.SupplierRebate, staging_key: [supplier_id, period], target_table: gold.FactSupplierRebate, target_key: [SupplierID, RebatePeriod], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.FactSupplierRebate, target_key: [SupplierID, RebatePeriod], target_filter: active}}
       - {name: REBATE_TOTAL, handler: RECON_MEASURE_TOTAL, severity: ERROR, tolerance: 0.01, tolerance_reason: Cent rounding,
          params: {staging_table: silver.SupplierRebate, staging_measure: rebate_amount, target_table: gold.FactSupplierRebate, target_measure: RebateAmount}}
       - {name: UNKNOWN_MEMBERS, handler: RECON_UNKNOWN_MEMBERS, severity: ERROR}
@@ -574,6 +728,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.GeneralLedger, staging_key: [journal_id], target_table: gold.FactGeneralLedger, target_key: [JournalID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.FactGeneralLedger, target_key: [JournalID, JournalLineNumber], target_filter: active}}
       - {name: DEBIT_TOTAL, handler: RECON_MEASURE_TOTAL, severity: CRITICAL, tolerance: 0.01, tolerance_reason: Cent rounding,
          params: {staging_table: silver.GeneralLedger, staging_measure: debit, target_table: gold.FactGeneralLedger, target_measure: DebitAmount}}
       - {name: CREDIT_TOTAL, handler: RECON_MEASURE_TOTAL, severity: CRITICAL, tolerance: 0.01, tolerance_reason: Cent rounding,
@@ -603,6 +759,8 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.OperatingExpense, staging_key: [expense_id], target_table: gold.FactOperatingExpense, target_key: [ExpenseID], target_filter: active}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.FactOperatingExpense, target_key: [ExpenseID], target_filter: active}}
       - {name: AMOUNT_TOTAL, handler: RECON_MEASURE_TOTAL, severity: ERROR, tolerance: 0.01, tolerance_reason: Cent rounding,
          params: {staging_table: silver.OperatingExpense, staging_measure: amount, target_table: gold.FactOperatingExpense, target_measure: Amount}}
       - {name: UNKNOWN_MEMBERS, handler: RECON_UNKNOWN_MEMBERS, severity: ERROR}
@@ -641,6 +799,14 @@ mappings:
     controls:
       - {name: KEY_COVERAGE, handler: RECON_KEY_COVERAGE, severity: CRITICAL,
          params: {staging_table: silver.BranchCashup, staging_key: [shift_id], target_table: gold.FactBranchCashup, target_key: [ShiftID], target_filter: all}}
+      - {name: DUPLICATE_KEYS, handler: RECON_DUPLICATE_KEYS, severity: CRITICAL,
+         params: {target_table: gold.FactBranchCashup, target_key: [ShiftID], target_filter: all}}
+      - {name: EXPECTED_RECORDS, handler: RECON_EXPECTED_RECORDS, severity: WARNING, mandatory: false,
+         params: {target_table: gold.FactBranchCashup, date_key: BusinessDateKey, member_key: SiteKey, expected_members: {table: gold.DimSite, key: SiteKey, filter_column: IsBranch, label: SiteID}}}
+      - {name: CASH_VARIANCE_ANOMALY, handler: RECON_ANOMALY, severity: WARNING, mandatory: false,
+         params: {target_table: gold.FactBranchCashup, date_key: BusinessDateKey, measure: CashVariance, group_key: SiteKey,
+                  group_label: {table: gold.DimSite, key: SiteKey, column: SiteID}, baseline: pooled,
+                  z_threshold: 3.5, min_points: 20}}
       - {name: UNKNOWN_MEMBERS, handler: RECON_UNKNOWN_MEMBERS, severity: ERROR}
     columns:
       BranchCashupKey: {rule: Surrogate key (IDENTITY)}
@@ -672,8 +838,6 @@ mappings:
     handler: PRESENTATION_REPLENISHMENT_PLAN
     order: 70
     depends_on: [GOLD_FACT_INVENTORY_MOVEMENT, GOLD_FACT_PURCHASE_ORDER_LINE, GOLD_FACT_GOODS_RECEIPT, GOLD_DIM_PRODUCT, GOLD_DIM_SITE]
-    controls:
-      - {name: WAREHOUSE_AUDIT, handler: RECON_WAREHOUSE_AUDIT, severity: CRITICAL}
     description: Replenishment plan built once per run (stock, demand, lead time, reorder point, status).
     columns:
       SiteID: {from: gold.DimSite, rule: Branch or distribution centre}

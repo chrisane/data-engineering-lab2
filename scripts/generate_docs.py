@@ -165,15 +165,55 @@ def mappings(catalogue: Catalogue) -> str:
     return "".join(parts)
 
 
+def dimension_coverage(catalogue: Catalogue) -> list[list]:
+    """One row per mapping: how many checks prove each quality dimension (validation rules + controls)."""
+
+    dimensions = [d["DimensionCode"] for d in catalogue.quality_dimensions]
+    handler_dimension = {
+        c["CheckType"]: c["DimensionCode"] for c in catalogue.quality_check_types if c["CheckStage"] == "RECONCILIATION"
+    }
+    rows = []
+
+    for mapping in catalogue.mappings:
+        counts = dict.fromkeys(dimensions, 0)
+        for control in catalogue.controls:
+            if control["MappingCode"] == mapping["MappingCode"]:
+                counts[handler_dimension[control["HandlerCode"]]] += 1
+        if mapping["LoadLayer"] == "SILVER":
+            for rule in catalogue.rules:
+                if rule["SourceName"] == mapping["SourceName"]:
+                    counts[rule["DqDimension"]] += 1
+        rows.append([mapping["MappingCode"], mapping["LoadLayer"]] + [counts[d] or "-" for d in dimensions])
+
+    return rows
+
+
 def quality_rules(catalogue: Catalogue) -> str:
+    dimensions = [d["DimensionCode"] for d in catalogue.quality_dimensions]
     parts = [
         HEADER,
         "# Data quality and business rules catalogue\n\n",
-        "## Validation rules (before staging)\n\n",
-        "Applied to every source file by src/validation; a failed ERROR rule blocks the file at the load "
-        "gate. DQ dimensions follow DAMA-DMBOK (completeness, uniqueness, validity, consistency, accuracy).\n\n",
+        "## Quality dimensions\n\n",
+        "Every check proves one of these dimensions (config/pipeline.yaml, quality_dimensions). Metadata sync "
+        "rejects a check without a dimension and a mapping that misses a dimension its layer requires.\n\n",
+        table(["Dimension", "Meaning"], [[d["DimensionCode"], d["Description"]] for d in catalogue.quality_dimensions]),
+        "\n## Check types\n\n",
         table(
-            ["Rule", "Stage", "Field", "Severity", "DQ dimension", "Definition", "Owner"],
+            ["Check", "Stage", "Dimension", "Description"],
+            [
+                [c["CheckType"], c["CheckStage"], c["DimensionCode"], c["Description"]]
+                for c in sorted(catalogue.quality_check_types, key=lambda c: (c["DimensionCode"], c["CheckType"]))
+            ],
+        ),
+        "\n## Coverage by mapping\n\n",
+        "Number of checks per dimension: validation rules of the source (silver) plus reconciliation controls "
+        "after the load. Required: silver FRESHNESS, VOLUME, SCHEMA, COMPLETENESS; gold and presentation "
+        "SCHEMA, COMPLETENESS (or a documented exemption).\n\n",
+        table(["Mapping", "Layer"] + dimensions, dimension_coverage(catalogue)),
+        "\n## Validation rules (before staging)\n\n",
+        "Applied to every source file by src/validation; a failed ERROR rule blocks the file at the load gate.\n\n",
+        table(
+            ["Rule", "Stage", "Field", "Severity", "Dimension", "Definition", "Owner"],
             [
                 [
                     r["RuleCode"],

@@ -49,18 +49,14 @@ TABLE_NAME = re.compile(r"^(silver|gold|presentation)\.[A-Za-z][A-Za-z0-9_]*$")
 SEVERITIES = {"CRITICAL", "ERROR", "WARNING"}
 STRATEGIES = {"APPEND", "UPSERT", "SCD1", "SCD2", "FULL_REFRESH"}
 
-DQ_DIMENSIONS = {
-    "REQUIRED_VALUE": "Completeness",
-    "UNIQUE": "Uniqueness",
-    "DATA_TYPE": "Validity",
-    "NUMERIC_RANGE": "Validity",
-    "VALID_DATE": "Validity",
-    "ALLOWED_VALUE": "Validity",
-    "PATTERN": "Validity",
-    "REFERENTIAL_INTEGRITY": "Consistency",
-    "CALCULATION": "Accuracy",
-    "COMPARISON": "Accuracy",
-    "GROUP_BALANCE": "Accuracy",
+# Named business rules take their quality dimension from their kind.
+BUSINESS_RULE_DIMENSIONS = {"calculations": "ACCURACY", "comparisons": "ACCURACY", "group_balance": "CONSISTENCY"}
+
+# Dimensions every mapping of a layer must cover (config/pipeline.yaml, quality_dimensions).
+REQUIRED_DIMENSIONS = {
+    "SILVER": {"FRESHNESS", "VOLUME", "SCHEMA", "COMPLETENESS"},
+    "GOLD": {"SCHEMA", "COMPLETENESS"},
+    "PRESENTATION": {"SCHEMA", "COMPLETENESS"},
 }
 
 
@@ -76,6 +72,8 @@ class Catalogue:
     mappings: list[dict] = field(default_factory=list)
     dependencies: list[tuple[str, str]] = field(default_factory=list)
     controls: list[dict] = field(default_factory=list)
+    quality_dimensions: list[dict] = field(default_factory=list)
+    quality_check_types: list[dict] = field(default_factory=list)
     rules: list[dict] = field(default_factory=list)
     lineage: list[dict] = field(default_factory=list)
     settings: list[dict] = field(default_factory=list)
@@ -227,6 +225,22 @@ def plan() -> Catalogue:
             }
         )
 
+    # ---------------- data-quality dimensions and check types
+    dimensions = pipeline.get("quality_dimensions") or {}
+    check_dimensions = pipeline.get("validation_check_dimensions") or {}
+
+    catalogue.quality_dimensions = [
+        {"DimensionCode": code, "Description": text, "DisplayOrder": order}
+        for order, (code, text) in enumerate(dimensions.items(), 1)
+    ]
+
+    for check, dimension in check_dimensions.items():
+        if dimension not in dimensions:
+            problems.append(f"Validation check {check}: unknown quality dimension {dimension!r}.")
+        catalogue.quality_check_types.append(
+            {"CheckType": check, "CheckStage": "VALIDATION", "DimensionCode": dimension, "Description": None}
+        )
+
     # ---------------- handlers
     configured_handlers = pipeline.get("handlers") or {}
 
@@ -242,6 +256,18 @@ def plan() -> Catalogue:
         if config.get("type") != expected_type:
             problems.append(
                 f"Handler {code}: type {config.get('type')!r} does not match implementation {expected_type!r}."
+            )
+
+        if expected_type == "RECONCILIATION":
+            if config.get("dimension") not in dimensions:
+                problems.append(f"Handler {code}: dimension must be one of {sorted(dimensions)}.")
+            catalogue.quality_check_types.append(
+                {
+                    "CheckType": code,
+                    "CheckStage": "RECONCILIATION",
+                    "DimensionCode": config.get("dimension"),
+                    "Description": config.get("description"),
+                }
             )
 
         catalogue.handlers.append(
@@ -366,6 +392,15 @@ def plan() -> Catalogue:
         controls = [c for c in default_controls.get(mapping["layer"], []) if c["name"] not in skipped]
         controls += mapping.get("controls") or []
 
+        covered = {(configured_handlers.get(c["handler"]) or {}).get("dimension") for c in controls}
+        for dimension, reason in (mapping.get("quality_exempt") or {}).items():
+            if not reason:
+                problems.append(f"Mapping {label}: the exemption from {dimension} needs a reason.")
+            covered.add(dimension)
+        missing_dimensions = REQUIRED_DIMENSIONS.get(mapping["layer"], set()) - covered
+        if missing_dimensions:
+            problems.append(f"Mapping {label}: no check covers {', '.join(sorted(missing_dimensions))}.")
+
         for control in controls:
             code = f"{label}.{control['name']}"
 
@@ -444,7 +479,16 @@ def plan() -> Catalogue:
 
     # ---------------- business rules catalogue (validation contracts)
     for source, config in registry["sources"].items():
-        catalogue.rules += source_rules(source, config)
+        catalogue.rules += source_rules(source, config, check_dimensions)
+
+    for rule in catalogue.rules:
+        if rule["DqDimension"] not in dimensions:
+            problems.append(f"Rule {rule['RuleCode']}: rule type {rule['RuleType']} has no quality dimension.")
+
+    used = {configured_handlers[c["HandlerCode"]].get("dimension") for c in catalogue.controls}
+    used |= {r["DqDimension"] for r in catalogue.rules}
+    for dimension in set(dimensions) - used:
+        problems.append(f"Quality dimension {dimension} is not covered by any configured check.")
 
     # ---------------- settings, posting rules, rebate thresholds
     catalogue.settings = flatten_settings(business_rules)
@@ -571,8 +615,8 @@ def describe_column_rules(column: str, rules: dict, business: dict) -> str | Non
     return "; ".join(parts) or None
 
 
-def source_rules(source: str, config: dict) -> list[dict]:
-    """The validation contract as a business-rule catalogue."""
+def source_rules(source: str, config: dict, check_dimensions: dict) -> list[dict]:
+    """The validation contract as a business-rule catalogue (with each rule's quality dimension)."""
 
     governance = config.get("governance") or {}
     owner = governance.get("data_owner")
@@ -592,7 +636,7 @@ def source_rules(source: str, config: dict) -> list[dict]:
                 "Definition": definition,
                 "ParametersJson": json.dumps(parameters, default=str) if parameters else None,
                 "RuleOwner": owner,
-                "DqDimension": DQ_DIMENSIONS.get(rule_type),
+                "DqDimension": check_dimensions.get(rule_type),
             }
         )
 
@@ -638,7 +682,7 @@ def source_rules(source: str, config: dict) -> list[dict]:
             parameters=calculation,
             stage="BUSINESS_RULE_VALIDATION",
         )
-        catalogue[-1]["DqDimension"] = "Accuracy"
+        catalogue[-1]["DqDimension"] = BUSINESS_RULE_DIMENSIONS["calculations"]
 
     for comparison in business.get("comparisons") or []:
         right = (
@@ -654,7 +698,7 @@ def source_rules(source: str, config: dict) -> list[dict]:
             parameters=comparison,
             stage="BUSINESS_RULE_VALIDATION",
         )
-        catalogue[-1]["DqDimension"] = "Accuracy"
+        catalogue[-1]["DqDimension"] = BUSINESS_RULE_DIMENSIONS["comparisons"]
 
     for balance in business.get("group_balance") or []:
         add(
@@ -665,7 +709,7 @@ def source_rules(source: str, config: dict) -> list[dict]:
             parameters=balance,
             stage="BUSINESS_RULE_VALIDATION",
         )
-        catalogue[-1]["DqDimension"] = "Accuracy"
+        catalogue[-1]["DqDimension"] = BUSINESS_RULE_DIMENSIONS["group_balance"]
 
     return catalogue
 
@@ -804,6 +848,18 @@ def sync(connection, catalogue: Catalogue) -> dict:
             counts["disabled"] += 1
 
     handler_ids = dict(cursor.execute("SELECT HandlerCode, HandlerID FROM meta.ExecutionHandler").fetchall())
+
+    # Data-quality dimensions and the check types that prove them
+    for dimension in catalogue.quality_dimensions:
+        upsert("meta.QualityDimension", ["DimensionCode"], dimension, ", UpdatedAt = SYSUTCDATETIME()")
+    configured_checks = set()
+    for check in catalogue.quality_check_types:
+        configured_checks.add(check["CheckType"])
+        upsert("meta.QualityCheckType", ["CheckType"], {**check, "IsActive": 1}, ", UpdatedAt = SYSUTCDATETIME()")
+    for (check,) in cursor.execute("SELECT CheckType FROM meta.QualityCheckType WHERE IsActive = 1").fetchall():
+        if check not in configured_checks:
+            cursor.execute("UPDATE meta.QualityCheckType SET IsActive = 0 WHERE CheckType = ?", check)
+            counts["disabled"] += 1
 
     # Mappings (matched by code, or by source + target for rows created before codes existed)
     configured_codes = set()

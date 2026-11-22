@@ -47,6 +47,8 @@ python scripts/migrate.py baseline --through 14          # record an existing da
 | 026 | Retention audit. |
 | 027 | Materialised replenishment plan: `presentation.ReplenishmentPlan` table and `presentation.usp_BuildReplenishmentPlan` (mapping `PRESENTATION_REPLENISHMENT_PLAN`); `vw_ReplenishmentPlan` and `vw_SupplierReorderProposal` read the table (same names and columns, ~200 s -> <1 s). |
 | 028 | `silver.BranchCashup.template_version` (nullable): which registered cash-up template each document was read with. |
+| 029 | Data-quality dimensions: `meta.QualityDimension`, `meta.QualityCheckType`, `audit.DataAnomaly`; views `audit.vw_QualityCheckCoverage`, `vw_QualityResultsByDimension`, `vw_DataAnomalies`; `vw_DataQualityByDimension` now uses the eight dimensions. |
+| 030 | ML feature table `gold.FeatureDemandWeekly`, `gold.usp_BuildFeatureDemandWeekly` (mapping `GOLD_FEATURE_DEMAND_WEEKLY`) and `presentation.vw_DemandForecastFeatures`. |
 
 ### Baseline reset: medallion schema names (2026-11-22)
 

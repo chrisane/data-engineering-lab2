@@ -40,6 +40,7 @@ Each mapping is executed by one approved handler (src/warehouse/handlers.py) in 
 | GOLD_FACT_SALES_LINE | sales_lines | gold.FactSalesLine | GOLD | UPSERT | FACT_SALES_LINE | 50 | SILVER_SALES_LINE, SILVER_SALES_TRANSACTION, GOLD_DIM_DATE, GOLD_DIM_SITE, GOLD_DIM_CUSTOMER, GOLD_DIM_PRODUCT |
 | GOLD_FACT_INVENTORY_MOVEMENT | inventory_movements | gold.FactInventoryMovement | GOLD | UPSERT | FACT_INVENTORY_MOVEMENT | 50 | SILVER_INVENTORY_MOVEMENT, GOLD_DIM_DATE, GOLD_DIM_SITE, GOLD_DIM_PRODUCT |
 | GOLD_FACT_INVENTORY_SNAPSHOT | inventory_movements | gold.FactInventorySnapshot | GOLD | FULL_REFRESH | FACT_INVENTORY_SNAPSHOT | 60 | GOLD_FACT_INVENTORY_MOVEMENT |
+| GOLD_FEATURE_DEMAND_WEEKLY | sales_lines | gold.FeatureDemandWeekly | GOLD | FULL_REFRESH | FEATURE_DEMAND_WEEKLY | 60 | GOLD_FACT_SALES_LINE, GOLD_FACT_INVENTORY_MOVEMENT, GOLD_DIM_PRODUCT, GOLD_DIM_SITE, GOLD_DIM_DATE |
 | GOLD_FACT_PURCHASE_ORDER | purchase_orders | gold.FactPurchaseOrder | GOLD | UPSERT | FACT_PURCHASE_ORDER | 50 | SILVER_PURCHASE_ORDER, GOLD_DIM_DATE, GOLD_DIM_SITE, GOLD_DIM_SUPPLIER |
 | GOLD_FACT_PURCHASE_ORDER_LINE | purchase_order_lines | gold.FactPurchaseOrderLine | GOLD | UPSERT | FACT_PURCHASE_ORDER_LINE | 50 | SILVER_PURCHASE_ORDER_LINE, SILVER_PURCHASE_ORDER, GOLD_DIM_DATE, GOLD_DIM_SITE, GOLD_DIM_SUPPLIER, GOLD_DIM_PRODUCT |
 | GOLD_FACT_GOODS_RECEIPT | goods_receipts | gold.FactGoodsReceipt | GOLD | UPSERT | FACT_GOODS_RECEIPT | 50 | SILVER_GOODS_RECEIPT, SILVER_PURCHASE_ORDER, GOLD_DIM_DATE, GOLD_DIM_SITE, GOLD_DIM_SUPPLIER |
@@ -279,6 +280,36 @@ Source: inventory_movements via silver.InventoryMovement
 | QuantityOut | gold.FactInventoryMovement.Quantity | Sum of negative quantities in the month (as positive) |
 | ClosingQuantity | gold.FactInventoryMovement.Quantity | Running sum of all movements to month end |
 | ClosingValue | gold.DimProduct.StandardCost | ClosingQuantity x current standard cost |
+
+## gold.FeatureDemandWeekly
+
+Source: sales_lines via silver.SalesLine
+
+| Column | From | Transformation |
+|---|---|---|
+| WeekStartDateKey | gold.FactSalesLine.SaleDateKey | Monday of the week (gold.DimDate); weeks from the first sale to the week after the last complete week |
+| SiteKey | gold.FactSalesLine.SiteKey | Every site and product that has ever sold gets a row for every week |
+| ProductID | gold.DimProduct.ProductID | Business key (all versions of a product are combined) |
+| ProductKey | gold.DimProduct | Current version of the product |
+| Category | gold.DimProduct.Category | Current version |
+| IsDCStocked | gold.DimProduct.IsDCStocked | Current version |
+| WeekOfYear | gold.DimDate.IsoWeek | ISO week of the week start |
+| MonthNumber | gold.DimDate.MonthNumber | Month of the week start |
+| QuarterNumber | gold.DimDate.QuarterNumber | Quarter of the week start |
+| HistoryWeeks |  | Weeks of history before this week (0 for the first week) |
+| QtyLag1W | gold.FactSalesLine.Quantity | Units sold in the previous week; NULL without history |
+| QtyLag2W | gold.FactSalesLine.Quantity | Units sold two weeks before |
+| QtyLag4W | gold.FactSalesLine.Quantity | Units sold four weeks before |
+| QtyRolling4WAvg | gold.FactSalesLine.Quantity | Average weekly units over the previous 4 weeks; NULL with fewer than 4 weeks of history |
+| QtyRolling13WAvg | gold.FactSalesLine.Quantity | Average weekly units over the previous 13 weeks; NULL with fewer than 13 |
+| QtyRolling4WStdDev | gold.FactSalesLine.Quantity | Standard deviation of weekly units over the previous 4 weeks |
+| AvgUnitPrice4W | gold.FactSalesLine.LineNetAmount, Quantity | Net amount / units over the previous 4 weeks; NULL without sales |
+| WeeksSinceLastSale | gold.FactSalesLine | Weeks since the most recent earlier week with a sale; NULL if none |
+| StockOnHandStart | gold.FactInventoryMovement.Quantity | Sum of all movements before the week starts |
+| StockCoverWeeks |  | StockOnHandStart / QtyRolling4WAvg; NULL when the average is 0 or unknown |
+| TargetQuantity | gold.FactSalesLine.Quantity | Label: units sold in the week (so far, for the INFERENCE week); NULL for a week after the data |
+| IsLabelComplete |  | The whole week lies within the loaded sales data |
+| DatasetSplit |  | TRAINING when the label is complete, otherwise INFERENCE |
 
 ## gold.FactPurchaseOrder
 

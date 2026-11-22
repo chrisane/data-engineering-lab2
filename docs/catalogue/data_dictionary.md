@@ -43,11 +43,11 @@ Domain: Procurement. Suppliers, minimum order values, rebate rates and payment t
 
 | Column | Definition | Type | Nullable | Key | Classification | Validation rules |
 |---|---|---|---|---|---|---|
-| supplier_id | Code of the supplier (SUP####). | NVARCHAR(50) | No | Yes | CONFIDENTIAL | Required; Unique; Matches ^SUP\d{4}$ |
-| supplier_name | Registered name of the supplier. | NVARCHAR(255) | No |  | CONFIDENTIAL | Required |
-| location | Town or city of the supplier. | NVARCHAR(255) | Yes |  | CONFIDENTIAL |  |
-| minimum_order_value_nad | Smallest purchase-order value (NAD, excl. VAT) the supplier accepts; orders below it are invalid. | DECIMAL(19, 6) | No |  | CONFIDENTIAL | Required; Number >= 5000 <= 50000 |
-| rebate_rate | Contractual base rebate rate as a fraction (0.02 = 2%). | DECIMAL(19, 6) | Yes |  | CONFIDENTIAL | Number >= 0 <= 1 |
+| supplier_id | Code of the supplier (SUP####). | VARCHAR(20) | No | Yes | CONFIDENTIAL | Required; Unique; Matches ^SUP\d{4}$ |
+| supplier_name | Registered name of the supplier. | NVARCHAR(200) | No |  | CONFIDENTIAL | Required |
+| location | Town or city of the supplier. | NVARCHAR(100) | Yes |  | CONFIDENTIAL |  |
+| minimum_order_value_nad | Smallest purchase-order value (NAD, excl. VAT) the supplier accepts; orders below it are invalid. | DECIMAL(18, 2) | No |  | CONFIDENTIAL | Required; Number >= 5000 <= 50000 |
+| rebate_rate | Contractual base rebate rate as a fraction (0.02 = 2%). | DECIMAL(9, 6) | Yes |  | CONFIDENTIAL | Number >= 0 <= 1 |
 | payment_terms_days | Days after the invoice date by which the supplier must be paid. | INT | Yes |  | CONFIDENTIAL | Whole number >= 0 |
 
 ## product_supplier (silver.ProductSupplier)
