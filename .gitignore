@@ -25,10 +25,6 @@ data/processed/*
 data/archive/*
 !data/*/.gitkeep
 
-# Withdrawn legacy cash-up documents (see config/source_registry.yaml,
-# withdrawn_files) are kept under version control as evidence.
-!data/archive/legacy_cashups/
-
 logs/*
 !logs/.gitkeep
 

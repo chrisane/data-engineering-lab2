@@ -84,16 +84,8 @@ ignored_files:
 # Files formally withdrawn from use. Matching files are refused at
 # ingestion and, if ingested earlier, marked WITHDRAWN by the load gate
 # so they are never loaded. History and RAW evidence are kept.
-withdrawn_files:
-  - pattern: cashups/S*_Cashup.pdf
-    reason: >-
-      Legacy cash-up documents from an earlier generator. Their site codes
-      (S001-S004) do not exist in site_master and their amounts are not
-      consistent with recorded sales, so they cannot be reconciled.
-      Replaced by generator-produced cash-ups using branch site codes.
-    withdrawn_on: 2026-10-10
-    approved_by: Head of Operations (Operations)
-    archived_to: data/archive/legacy_cashups/
+# Entry fields: pattern, reason, withdrawn_on, approved_by, archived_to.
+withdrawn_files: []
 
 sources:
 

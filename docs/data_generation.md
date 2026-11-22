@@ -11,7 +11,7 @@ ingested as a new, unchanged version).
 |---|---|
 | Weekly stock transfers DC -> branches (`TRANSFER_OUT` / `TRANSFER_IN`, shared `TRF` document), the first one including a buffer of three weeks' average sales | Without transfers every branch's stock went negative (sales with no inbound stock). Replenishment analysis needs realistic flows. |
 | Opening stock at the DC (`ADJUSTMENT`, document `OPENING-STOCK-2026`) | So DC stock never goes negative; sized from the cumulative purchase/transfer flow plus 10%. |
-| Branch cash-up PDFs generated from the sales data (one per branch per day, 21-27 Sept 2026) | The previous 111 PDFs used site codes S001-S004 (not in `site_master`) and amounts ~30x the sales; they could not be reconciled. They were **withdrawn** (registry `withdrawn_files`) and archived to `data/archive/legacy_cashups/`; their RAW copies and history are kept. |
+| Branch cash-up PDFs generated from the sales data (one per branch per day, 21-27 Sept 2026) | The previous 111 PDFs used site codes S001-S004 (not in `site_master`) and amounts ~30x the sales; they could not be reconciled. They were **withdrawn** (registry `withdrawn_files`) and archived to `data/archive/legacy_cashups/`. The archive and withdrawal entry were removed on 2026-11-22 when the repository was reset to a clean baseline (see [regenerating_data.md](regenerating_data.md)). |
 | Generator self-check `negative_stock_positions` and `cashup_documents` | Proves the inventory and document generation. |
 
 Generation writes every file to a staging folder first and moves them into place when all are

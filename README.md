@@ -450,6 +450,7 @@ See [docs/developer_setup.md](docs/developer_setup.md) for the full guide.
 | [docs/powerbi_semantic_model.md](docs/powerbi_semantic_model.md) | Semantic model, measures, dashboards, RLS |
 | [docs/fabric_dbt_integration.md](docs/fabric_dbt_integration.md) | Fabric and dbt evaluation |
 | [docs/data_generation.md](docs/data_generation.md) | Synthetic data, deliberate exceptions, findings |
+| [docs/regenerating_data.md](docs/regenerating_data.md) | Wipe all data and rebuild from newly generated data |
 | [docs/catalogue/](docs/catalogue/) | Generated: source catalogue, data dictionary, mappings and lineage, rules |
 | [docs/implementation_report.md](docs/implementation_report.md) | Final test and implementation report |
 
