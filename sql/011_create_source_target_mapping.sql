@@ -24,7 +24,7 @@ BEGIN
             REFERENCES meta.DataSource(SourceID),
 
         CONSTRAINT CK_SourceTargetMapping_Layer
-            CHECK (LoadLayer IN ('STAGING', 'WAREHOUSE', 'MART')),
+            CHECK (LoadLayer IN ('SILVER', 'GOLD', 'PRESENTATION')),
 
         CONSTRAINT CK_SourceTargetMapping_Strategy
             CHECK (LoadStrategy IN (

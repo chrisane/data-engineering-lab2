@@ -1,9 +1,9 @@
 USE RetailDataPlatform;
 GO
 
-IF OBJECT_ID(N'dw.DimSupplier', N'U') IS NULL
+IF OBJECT_ID(N'gold.DimSupplier', N'U') IS NULL
 BEGIN
-    CREATE TABLE dw.DimSupplier (
+    CREATE TABLE gold.DimSupplier (
         SupplierKey BIGINT IDENTITY(1,1) NOT NULL
             CONSTRAINT PK_DimSupplier PRIMARY KEY,
 
@@ -70,12 +70,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes
-    WHERE object_id = OBJECT_ID(N'dw.DimSupplier')
+    WHERE object_id = OBJECT_ID(N'gold.DimSupplier')
       AND name = 'UX_DimSupplier_Current'
 )
 BEGIN
     CREATE UNIQUE INDEX UX_DimSupplier_Current
-    ON dw.DimSupplier(SupplierID)
+    ON gold.DimSupplier(SupplierID)
     WHERE IsCurrent = 1;
 END;
 GO

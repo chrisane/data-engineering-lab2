@@ -52,7 +52,7 @@ def test_labels_on_the_same_or_next_line():
 # ---------------------------------------------------------
 
 CONTRACT = {
-    "staging_table": "stg.Example",
+    "staging_table": "silver.Example",
     "structure": {"required_columns": ["id", "qty", "price", "day", "flag", "note"], "sql_types": {}},
     "data_rules": {
         "required_values": ["id", "qty"],
@@ -144,7 +144,7 @@ def test_tolerance_absolute_and_percent():
     assert not within_tolerance(None, 100, 1, "ABSOLUTE")
 
 
-@pytest.mark.parametrize("name", ["dw.Fact;DROP TABLE x", "dw", "dw.Fact Sales", "[dw].[x]"])
+@pytest.mark.parametrize("name", ["gold.Fact;DROP TABLE x", "gold", "gold.Fact Sales", "[gold].[x]"])
 def test_unsafe_identifiers_are_rejected_before_any_sql(name):
 
     with pytest.raises(ControlConfigurationError):
@@ -157,8 +157,8 @@ def test_unsafe_identifiers_are_rejected_before_any_sql(name):
 
 REGISTRY = {
     "sources": {
-        "site_master": {"path": "site_master.xlsx", "staging_table": "stg.Site"},
-        "branch_cashup": {"path": "cashups/*.pdf", "staging_table": "stg.BranchCashup"},
+        "site_master": {"path": "site_master.xlsx", "staging_table": "silver.Site"},
+        "branch_cashup": {"path": "cashups/*.pdf", "staging_table": "silver.BranchCashup"},
     }
 }
 
@@ -169,7 +169,7 @@ def context(decisions):
 
 def test_single_file_source_must_be_eligible():
 
-    mapping = {"layer": "STAGING", "source": "site_master"}
+    mapping = {"layer": "SILVER", "source": "site_master"}
 
     assert eligibility_block(mapping, context([{"source": "site_master", "decision": "ELIGIBLE"}])) is None
     reason = eligibility_block(
@@ -181,7 +181,7 @@ def test_single_file_source_must_be_eligible():
 
 def test_document_set_loads_when_any_document_is_eligible():
 
-    mapping = {"layer": "STAGING", "source": "branch_cashup"}
+    mapping = {"layer": "SILVER", "source": "branch_cashup"}
     decisions = [
         {"source": "branch_cashup", "decision": "BLOCKED", "reason": "x"},
         {"source": "branch_cashup", "decision": "ELIGIBLE"},
@@ -192,7 +192,7 @@ def test_document_set_loads_when_any_document_is_eligible():
 
 def test_warehouse_mappings_are_gated_by_dependencies_not_eligibility():
 
-    assert eligibility_block({"layer": "WAREHOUSE", "source": "site_master"}, context([])) is None
+    assert eligibility_block({"layer": "GOLD", "source": "site_master"}, context([])) is None
 
 
 # ---------------------------------------------------------
@@ -206,5 +206,5 @@ def test_staging_migration_creates_every_registry_staging_table():
     registry = __import__("common").load_registry_config()
 
     for source, config in registry["sources"].items():
-        if config.get("staging_table") and config["staging_table"] != "stg.Supplier":
+        if config.get("staging_table") and config["staging_table"] != "silver.Supplier":
             assert f"CREATE TABLE {config['staging_table']} (" in sql, source

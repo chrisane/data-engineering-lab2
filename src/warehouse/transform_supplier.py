@@ -46,7 +46,7 @@ def main() -> int:
         cursor.execute(
             """
             SELECT COUNT(*), COUNT(DISTINCT SourceFileHash)
-            FROM stg.Supplier WHERE IngestionRunID=? AND SourceFileHash=?
+            FROM silver.Supplier WHERE IngestionRunID=? AND SourceFileHash=?
         """,
             run_id,
             digest,
@@ -55,7 +55,7 @@ def main() -> int:
         if staged == 0 or versions != 1:
             raise RuntimeError("WAREHOUSE REFUSED: no matching staged Supplier rows")
         connection.commit()
-        cursor.execute("EXEC dw.usp_LoadDimSupplier @IngestionRunID=?", run_id)
+        cursor.execute("EXEC gold.usp_LoadDimSupplier @IngestionRunID=?", run_id)
         # Consume all result sets, if any, before querying audit.
         while cursor.nextset():
             pass

@@ -18,16 +18,16 @@ IF SCHEMA_ID(N'audit') IS NULL
     EXEC(N'CREATE SCHEMA audit');
 GO
 
-IF SCHEMA_ID(N'stg') IS NULL
-    EXEC(N'CREATE SCHEMA stg');
+IF SCHEMA_ID(N'silver') IS NULL
+    EXEC(N'CREATE SCHEMA silver');
 GO
 
-IF SCHEMA_ID(N'dw') IS NULL
-    EXEC(N'CREATE SCHEMA dw');
+IF SCHEMA_ID(N'gold') IS NULL
+    EXEC(N'CREATE SCHEMA gold');
 GO
 
-IF SCHEMA_ID(N'mart') IS NULL
-    EXEC(N'CREATE SCHEMA mart');
+IF SCHEMA_ID(N'presentation') IS NULL
+    EXEC(N'CREATE SCHEMA presentation');
 GO
 
 SELECT
@@ -36,8 +36,8 @@ FROM sys.schemas
 WHERE name IN (
     'meta',
     'audit',
-    'stg',
-    'dw',
-    'mart'
+    'silver',
+    'gold',
+    'presentation'
 )
 ORDER BY name;

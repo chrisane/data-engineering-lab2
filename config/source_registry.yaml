@@ -96,7 +96,7 @@ sources:
   site_master:
     format: xlsx
     path: site_master.xlsx
-    staging_table: stg.Site
+    staging_table: silver.Site
     governance:
       description: Head office, distribution centre and branch locations.
       data_owner: Head of Operations (Operations)
@@ -120,7 +120,7 @@ sources:
   department_master:
     format: xlsx
     path: department_master.xlsx
-    staging_table: stg.Department
+    staging_table: silver.Department
     governance:
       description: Organisational departments.
       data_owner: Head of Human Resources (Human Resources)
@@ -142,7 +142,7 @@ sources:
   product_master:
     format: xlsx
     path: product_master.xlsx
-    staging_table: stg.Product
+    staging_table: silver.Product
     governance:
       description: Products, categories, standard cost and selling price.
       data_owner: Procurement Manager (Procurement)
@@ -181,7 +181,7 @@ sources:
   supplier_master:
     format: xlsx
     path: supplier_master.xlsx
-    staging_table: stg.Supplier
+    staging_table: silver.Supplier
     governance:
       description: Suppliers, minimum order values, rebate rates and payment terms.
       data_owner: Procurement Manager (Procurement)
@@ -224,7 +224,7 @@ sources:
   product_supplier:
     format: xlsx
     path: product_supplier.xlsx
-    staging_table: stg.ProductSupplier
+    staging_table: silver.ProductSupplier
     governance:
       description: Approved suppliers per product and their unit costs.
       data_owner: Procurement Manager (Procurement)
@@ -250,7 +250,7 @@ sources:
   customer_master:
     format: xlsx
     path: customer_master.xlsx
-    staging_table: stg.Customer
+    staging_table: silver.Customer
     governance:
       description: Retail and business customers with credit limits.
       data_owner: Head of Sales (Sales)
@@ -282,7 +282,7 @@ sources:
   purchase_orders:
     format: xlsx
     path: purchase_orders.xlsx
-    staging_table: stg.PurchaseOrder
+    staging_table: silver.PurchaseOrder
     governance:
       description: Purchase order headers raised by the distribution centre.
       data_owner: Procurement Manager (Procurement)
@@ -323,7 +323,7 @@ sources:
   purchase_order_lines:
     format: xlsx
     path: purchase_order_lines.xlsx
-    staging_table: stg.PurchaseOrderLine
+    staging_table: silver.PurchaseOrderLine
     governance:
       description: Products, quantities and costs per purchase order.
       data_owner: Procurement Manager (Procurement)
@@ -356,7 +356,7 @@ sources:
   goods_receipts:
     format: xlsx
     path: goods_receipts.xlsx
-    staging_table: stg.GoodsReceipt
+    staging_table: silver.GoodsReceipt
     governance:
       description: Goods received against purchase orders.
       data_owner: Warehouse Manager (Warehousing)
@@ -381,7 +381,7 @@ sources:
   supplier_invoices:
     format: xlsx
     path: supplier_invoices.xlsx
-    staging_table: stg.SupplierInvoice
+    staging_table: silver.SupplierInvoice
     governance:
       description: Accounts payable supplier invoices.
       data_owner: Financial Controller (Finance)
@@ -421,7 +421,7 @@ sources:
   supplier_rebates:
     format: xlsx
     path: supplier_rebates.xlsx
-    staging_table: stg.SupplierRebate
+    staging_table: silver.SupplierRebate
     governance:
       description: Quarterly supplier rebates earned on qualifying spend.
       data_owner: Financial Controller (Finance)
@@ -461,7 +461,7 @@ sources:
   sales_transactions:
     format: xlsx
     path: sales_transactions.xlsx
-    staging_table: stg.SalesTransaction
+    staging_table: silver.SalesTransaction
     governance:
       description: Branch sales headers with payment method and totals.
       data_owner: Head of Sales (Sales)
@@ -503,7 +503,7 @@ sources:
   sales_lines:
     format: xlsx
     path: sales_lines.xlsx
-    staging_table: stg.SalesLine
+    staging_table: silver.SalesLine
     governance:
       description: Products, quantities and prices per sale.
       data_owner: Head of Sales (Sales)
@@ -537,7 +537,7 @@ sources:
   inventory_movements:
     format: xlsx
     path: inventory_movements.xlsx
-    staging_table: stg.InventoryMovement
+    staging_table: silver.InventoryMovement
     governance:
       description: Stock receipts and sales movements per site and product.
       data_owner: Warehouse Manager (Warehousing)
@@ -573,7 +573,7 @@ sources:
   operating_expenses:
     format: xlsx
     path: operating_expenses.xlsx
-    staging_table: stg.OperatingExpense
+    staging_table: silver.OperatingExpense
     governance:
       description: Rent, utilities, connectivity and other operating costs per site.
       data_owner: Financial Controller (Finance)
@@ -600,7 +600,7 @@ sources:
   general_ledger:
     format: xlsx
     path: general_ledger.xlsx
-    staging_table: stg.GeneralLedger
+    staging_table: silver.GeneralLedger
     governance:
       description: General ledger journal lines derived from source transactions.
       data_owner: Chief Financial Officer (Finance)
@@ -651,7 +651,7 @@ sources:
   fixed_assets_erp:
     format: xlsx
     path: fixed_assets_erp.xlsx
-    staging_table: stg.FixedAsset
+    staging_table: silver.FixedAsset
     governance:
       description: Capitalised assets with cost, depreciation and net book value.
       data_owner: Financial Controller (Finance)
@@ -705,7 +705,7 @@ sources:
   branch_local_assets:
     format: xlsx
     path: branch_local_assets.xlsx
-    staging_table: stg.BranchLocalAsset
+    staging_table: silver.BranchLocalAsset
     governance:
       description: Small assets below the capitalisation threshold, kept by branches.
       data_owner: Head of Operations (Operations)
@@ -738,7 +738,7 @@ sources:
   branch_cashup:
     format: pdf
     path: cashups/*.pdf
-    staging_table: stg.BranchCashup
+    staging_table: silver.BranchCashup
     governance:
       description: End-of-shift branch cash-up reports.
       data_owner: Head of Operations (Operations)

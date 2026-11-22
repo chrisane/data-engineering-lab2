@@ -31,7 +31,7 @@ BEGIN
     DECLARE @Rows BIGINT, @DistinctRows BIGINT, @MissingCurrent BIGINT, @InvalidCurrent BIGINT, @Overlaps BIGINT, @MissingLineage BIGINT;
 
     SELECT @Rows=COUNT_BIG(*), @DistinctRows=COUNT(DISTINCT supplier_id)
-    FROM stg.Supplier
+    FROM silver.Supplier
     WHERE IngestionRunID=@IngestionRunID AND SourceFileHash=@SourceFileHash;
 
     IF @Rows=0
@@ -41,14 +41,14 @@ BEGIN
         N'Distinct non-null supplier_id count must equal staged row count.');
 
     SELECT @MissingCurrent=COUNT_BIG(*)
-    FROM stg.Supplier s
+    FROM silver.Supplier s
     WHERE s.IngestionRunID=@IngestionRunID AND s.SourceFileHash=@SourceFileHash
-      AND NOT EXISTS (SELECT 1 FROM dw.DimSupplier d WHERE d.SupplierID=s.supplier_id AND d.IsCurrent=1);
+      AND NOT EXISTS (SELECT 1 FROM gold.DimSupplier d WHERE d.SupplierID=s.supplier_id AND d.IsCurrent=1);
     INSERT @Results VALUES ('WAREHOUSE_KEY_COVERAGE', IIF(@MissingCurrent=0,'PASS','FAIL'), @MissingCurrent,0,
         N'Number of staged rows without a current warehouse supplier.');
 
     SELECT @InvalidCurrent=COUNT_BIG(*)
-    FROM (SELECT SupplierID FROM dw.DimSupplier GROUP BY SupplierID
+    FROM (SELECT SupplierID FROM gold.DimSupplier GROUP BY SupplierID
           HAVING SUM(CASE WHEN IsCurrent=1 THEN 1 ELSE 0 END)<>1) x;
     INSERT @Results VALUES ('SCD2_ONE_CURRENT', IIF(@InvalidCurrent=0,'PASS','FAIL'),@InvalidCurrent,0,
         N'Number of warehouse SupplierIDs without exactly one current row.');
@@ -57,13 +57,13 @@ BEGIN
     FROM (SELECT SupplierID, EffectiveFrom, EffectiveTo,
                  LAG(EffectiveTo) OVER (PARTITION BY SupplierID ORDER BY EffectiveFrom, RevisionNumber) AS PreviousTo,
                  ROW_NUMBER() OVER (PARTITION BY SupplierID ORDER BY EffectiveFrom, RevisionNumber) AS rn
-          FROM dw.DimSupplier) h
+          FROM gold.DimSupplier) h
     WHERE h.rn>1 AND (h.PreviousTo IS NULL OR h.PreviousTo>h.EffectiveFrom);
     INSERT @Results VALUES ('SCD2_NO_OVERLAP', IIF(@Overlaps=0,'PASS','FAIL'),@Overlaps,0,
         N'Number of overlapping or unclosed historical revision boundaries.');
 
     SELECT @MissingLineage=COUNT_BIG(*)
-    FROM stg.Supplier s
+    FROM silver.Supplier s
     WHERE s.IngestionRunID=@IngestionRunID AND s.SourceFileHash=@SourceFileHash
       AND (s.SourceFile IS NULL OR LTRIM(RTRIM(s.SourceFile))='' OR s.SourceRowNumber IS NULL OR s.SourceRowNumber<2);
     INSERT @Results VALUES ('STAGING_LINEAGE_FIELDS', IIF(@MissingLineage=0,'PASS','FAIL'),@MissingLineage,0,
@@ -79,9 +79,9 @@ BEGIN
         THROW 51302, 'Supplier reconciliation failed. See audit.ReconciliationResult.', 1;
 END;
 GO
--- Replace values below with the exact batch ID and full 64-character hash from stg.Supplier.
+-- Replace values below with the exact batch ID and full 64-character hash from silver.Supplier.
 SELECT TOP (10) IngestionRunID, SourceFileHash, COUNT_BIG(*) AS StagedRows
-FROM stg.Supplier
+FROM silver.Supplier
 GROUP BY IngestionRunID,SourceFileHash
 ORDER BY IngestionRunID DESC;
 GO

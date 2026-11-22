@@ -604,7 +604,7 @@ def eligibility_block(mapping: dict, context: RunContext) -> str | None:
 
     source = mapping["source"]
 
-    if mapping["layer"] != "STAGING" or source not in context.registry["sources"]:
+    if mapping["layer"] != "SILVER" or source not in context.registry["sources"]:
         return None
 
     decisions = context.source_decisions(source)

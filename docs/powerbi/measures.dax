@@ -1,6 +1,6 @@
 // =========================================================
 // Retail Data Platform v2 - explicit DAX measures
-// Table names follow the mart views imported into Power BI.
+// Table names follow the presentation views imported into Power BI.
 // =========================================================
 
 // ---------- Sales ----------

@@ -9,15 +9,15 @@ GO
     stock, demand and lead times on every query through stacked views
     (~200 s and 13.8 million logical reads on the full data set). The plan
     is now built once per pipeline run, set-based with temporary tables, by
-    mart.usp_BuildReplenishmentPlan (mapping MART_REPLENISHMENT_PLAN), and
+    presentation.usp_BuildReplenishmentPlan (mapping PRESENTATION_REPLENISHMENT_PLAN), and
     both views read the table. View names and columns are unchanged.
 
     GRAIN: one row per site (branch or DC) and product at the as-at date.
 */
 
-IF OBJECT_ID(N'mart.ReplenishmentPlan', N'U') IS NULL
+IF OBJECT_ID(N'presentation.ReplenishmentPlan', N'U') IS NULL
 BEGIN
-    CREATE TABLE mart.ReplenishmentPlan (
+    CREATE TABLE presentation.ReplenishmentPlan (
         SiteID NVARCHAR(50) NOT NULL,
         SiteName NVARCHAR(255) NOT NULL,
         SiteType NVARCHAR(50) NOT NULL,
@@ -40,7 +40,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER PROCEDURE mart.usp_BuildReplenishmentPlan @PipelineExecutionID BIGINT
+CREATE OR ALTER PROCEDURE presentation.usp_BuildReplenishmentPlan @PipelineExecutionID BIGINT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -49,17 +49,17 @@ BEGIN
     DECLARE @Rows BIGINT;
     DECLARE @AsAt DATE = COALESCE((SELECT TRY_CONVERT(DATE, SettingValue) FROM meta.Setting
                                    WHERE SettingKey = 'reporting.as_at_date'), CONVERT(DATE, SYSDATETIME()));
-    DECLARE @AsAtKey INT = dw.fn_DateKey(@AsAt);
+    DECLARE @AsAtKey INT = gold.fn_DateKey(@AsAt);
     DECLARE @WindowDays DECIMAL(19, 6) = meta.fn_SettingDecimal('replenishment.demand_window_days', 90);
     DECLARE @SafetyDays DECIMAL(19, 6) = meta.fn_SettingDecimal('replenishment.safety_stock_days', 7);
     DECLARE @DefaultLead DECIMAL(19, 6) = meta.fn_SettingDecimal('replenishment.default_lead_time_days', 7);
     DECLARE @ExcessCover DECIMAL(19, 6) = meta.fn_SettingDecimal('replenishment.excess_cover_days', 60);
     DECLARE @SlowDays DECIMAL(19, 6) = meta.fn_SettingDecimal('replenishment.slow_moving_days', 45);
-    DECLARE @WindowStartKey INT = dw.fn_DateKey(DATEADD(DAY, -CONVERT(INT, @WindowDays) + 1, @AsAt));
+    DECLARE @WindowStartKey INT = gold.fn_DateKey(DATEADD(DAY, -CONVERT(INT, @WindowDays) + 1, @AsAt));
 
     BEGIN TRY
         BEGIN TRANSACTION;
-        EXEC audit.usp_AcquireLoadLock N'mart.ReplenishmentPlan';
+        EXEC audit.usp_AcquireLoadLock N'presentation.ReplenishmentPlan';
 
         CREATE TABLE #MergeActions (ActionType NVARCHAR(10), BusinessKey NVARCHAR(200), OldRowHash BINARY(32),
                                     NewRowHash BINARY(32), OldDeleted BIT, NewDeleted BIT);
@@ -71,16 +71,16 @@ BEGIN
                        AND m.MovementDateKey >= @WindowStartKey, -m.Quantity, 0)) AS WindowOutflow,
                MAX(IIF(m.Quantity < 0, m.MovementDateKey, NULL)) AS LastOutflowKey
         INTO #Position
-        FROM dw.FactInventoryMovement AS m
-        JOIN dw.DimProduct AS p ON p.ProductKey = m.ProductKey
+        FROM gold.FactInventoryMovement AS m
+        JOIN gold.DimProduct AS p ON p.ProductKey = m.ProductKey
         WHERE m.IsDeletedInSource = 0 AND m.MovementDateKey <= @AsAtKey
         GROUP BY m.SiteKey, p.ProductID;
 
         -- Average supplier lead time per product (goods receipts of its PO lines).
         SELECT l.ProductID, AVG(CONVERT(DECIMAL(9, 2), g.LeadTimeDays)) AS LeadTimeDays
         INTO #LeadTime
-        FROM dw.FactPurchaseOrderLine AS l
-        JOIN dw.FactGoodsReceipt AS g ON g.POID = l.POID AND g.IsDeletedInSource = 0
+        FROM gold.FactPurchaseOrderLine AS l
+        JOIN gold.FactGoodsReceipt AS g ON g.POID = l.POID AND g.IsDeletedInSource = 0
         WHERE l.IsDeletedInSource = 0
         GROUP BY l.ProductID;
 
@@ -90,15 +90,15 @@ BEGIN
                DATEDIFF(DAY, lo.[Date], @AsAt) AS DaysSinceLastOutflow
         INTO #Plan
         FROM #Position AS pos
-        JOIN dw.DimSite AS s ON s.SiteKey = pos.SiteKey
-        JOIN dw.DimProduct AS p ON p.ProductID = pos.ProductID AND p.IsCurrent = 1
+        JOIN gold.DimSite AS s ON s.SiteKey = pos.SiteKey
+        JOIN gold.DimProduct AS p ON p.ProductID = pos.ProductID AND p.IsCurrent = 1
         LEFT JOIN #LeadTime AS lt ON lt.ProductID = pos.ProductID
-        LEFT JOIN dw.DimDate AS lo ON lo.DateKey = pos.LastOutflowKey
+        LEFT JOIN gold.DimDate AS lo ON lo.DateKey = pos.LastOutflowKey
         WHERE s.SiteType IN (N'BRANCH', N'DISTRIBUTION_CENTRE');
 
-        DELETE FROM mart.ReplenishmentPlan;
+        DELETE FROM presentation.ReplenishmentPlan;
 
-        INSERT mart.ReplenishmentPlan (SiteID, SiteName, SiteType, ProductID, ProductName, Category, QuantityOnHand,
+        INSERT presentation.ReplenishmentPlan (SiteID, SiteName, SiteType, ProductID, ProductName, Category, QuantityOnHand,
                                        StockValue, AvgDailyDemand, LeadTimeDays, ReorderPoint, DaysOfCover,
                                        DaysSinceLastOutflow, StockStatus, AsAtDate, PipelineExecutionID)
         SELECT SiteID, SiteName, SiteType, ProductID, ProductName, Category, QuantityOnHand,
@@ -117,37 +117,37 @@ BEGIN
         FROM #Plan;
         SET @Rows = @@ROWCOUNT;
 
-        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'MART_REPLENISHMENT_PLAN',
-             N'mart.ReplenishmentPlan', N'inventory_movements', NULL, NULL, @Rows, 0, @Rows;
+        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'PRESENTATION_REPLENISHMENT_PLAN',
+             N'presentation.ReplenishmentPlan', N'inventory_movements', NULL, NULL, @Rows, 0, @Rows;
 
         COMMIT TRANSACTION;
     END TRY
     BEGIN CATCH
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         DECLARE @Error NVARCHAR(4000) = ERROR_MESSAGE();
-        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'MART_REPLENISHMENT_PLAN', N'mart.ReplenishmentPlan', N'inventory_movements', @Error;
+        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'PRESENTATION_REPLENISHMENT_PLAN', N'presentation.ReplenishmentPlan', N'inventory_movements', @Error;
         THROW;
     END CATCH
 END;
 GO
 
-CREATE OR ALTER VIEW mart.vw_ReplenishmentPlan AS
+CREATE OR ALTER VIEW presentation.vw_ReplenishmentPlan AS
 SELECT SiteID, SiteName, SiteType, ProductID, ProductName, Category, QuantityOnHand, StockValue, AvgDailyDemand,
        LeadTimeDays, ReorderPoint, DaysOfCover, DaysSinceLastOutflow, StockStatus
-FROM mart.ReplenishmentPlan;
+FROM presentation.ReplenishmentPlan;
 GO
 
 -- GRAIN: one row per supplier: what the DC would order now from its
 -- preferred suppliers, valued in NAD and checked against the supplier's
 -- minimum order value.
-CREATE OR ALTER VIEW mart.vw_SupplierReorderProposal AS
+CREATE OR ALTER VIEW presentation.vw_SupplierReorderProposal AS
 WITH Params AS (
     SELECT meta.fn_SettingDecimal('replenishment.safety_stock_days', 7) AS SafetyDays,
            meta.fn_SettingDecimal('replenishment.default_lead_time_days', 7) AS ReviewDays
 ), Needs AS (
     SELECT r.ProductID,
            CEILING(r.AvgDailyDemand * (r.LeadTimeDays + p.SafetyDays + p.ReviewDays) - r.QuantityOnHand) AS SuggestedQuantity
-    FROM mart.ReplenishmentPlan AS r
+    FROM presentation.ReplenishmentPlan AS r
     CROSS JOIN Params AS p
     WHERE r.SiteType = N'DISTRIBUTION_CENTRE' AND r.StockStatus IN ('REORDER', 'NEGATIVE_STOCK')
 )
@@ -160,8 +160,8 @@ SELECT s.SupplierID, s.SupplierName, s.MinimumOrderValueNAD,
        IIF(SUM(n.SuggestedQuantity * b.SupplierUnitCost) >= s.MinimumOrderValueNAD, 0,
            s.MinimumOrderValueNAD - SUM(n.SuggestedQuantity * b.SupplierUnitCost)) AS ValueShortOfMinimum
 FROM Needs AS n
-JOIN dw.BridgeProductSupplier AS b ON b.ProductID = n.ProductID AND b.IsPreferredSupplier = 1 AND b.IsDeletedInSource = 0
-JOIN dw.DimSupplier AS s ON s.SupplierID = b.SupplierID AND s.IsCurrent = 1
+JOIN gold.BridgeProductSupplier AS b ON b.ProductID = n.ProductID AND b.IsPreferredSupplier = 1 AND b.IsDeletedInSource = 0
+JOIN gold.DimSupplier AS s ON s.SupplierID = b.SupplierID AND s.IsCurrent = 1
 WHERE n.SuggestedQuantity > 0
 GROUP BY s.SupplierID, s.SupplierName, s.MinimumOrderValueNAD;
 GO

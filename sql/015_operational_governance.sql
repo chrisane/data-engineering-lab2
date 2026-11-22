@@ -58,8 +58,8 @@ GO
 
 UPDATE m SET MappingCode = v.MappingCode
 FROM meta.SourceTargetMapping AS m
-JOIN (VALUES ('stg', 'Supplier', 'STG_SUPPLIER'),
-             ('dw', 'DimSupplier', 'DW_DIM_SUPPLIER')) AS v(TargetSchema, TargetTable, MappingCode)
+JOIN (VALUES ('silver', 'Supplier', 'SILVER_SUPPLIER'),
+             ('gold', 'DimSupplier', 'GOLD_DIM_SUPPLIER')) AS v(TargetSchema, TargetTable, MappingCode)
   ON v.TargetSchema = m.TargetSchema AND v.TargetTable = m.TargetTable
 WHERE m.MappingCode IS NULL;
 GO

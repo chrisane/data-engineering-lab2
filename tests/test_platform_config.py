@@ -32,7 +32,7 @@ def test_configuration_is_valid(catalogue):
 
 def test_every_registered_source_has_a_staging_mapping(catalogue):
 
-    staged = {m["SourceName"] for m in catalogue.mappings if m["LoadLayer"] == "STAGING"}
+    staged = {m["SourceName"] for m in catalogue.mappings if m["LoadLayer"] == "SILVER"}
     registry = metadata_sync.load_registry_config()
 
     assert set(registry["sources"]) <= staged
@@ -41,7 +41,7 @@ def test_every_registered_source_has_a_staging_mapping(catalogue):
 def test_every_source_with_a_warehouse_target(catalogue):
     """Phase C: every registered source reaches the warehouse."""
 
-    warehoused = {m["SourceName"] for m in catalogue.mappings if m["LoadLayer"] == "WAREHOUSE"}
+    warehoused = {m["SourceName"] for m in catalogue.mappings if m["LoadLayer"] == "GOLD"}
     registry = metadata_sync.load_registry_config()
 
     assert set(registry["sources"]) - warehoused == set()
@@ -57,7 +57,7 @@ def test_handlers_in_configuration_and_code_agree(catalogue):
 
 def test_every_warehouse_column_has_lineage(catalogue):
 
-    warehouse = {(m["TargetSchema"], m["TargetTable"]) for m in catalogue.mappings if m["LoadLayer"] == "WAREHOUSE"}
+    warehouse = {(m["TargetSchema"], m["TargetTable"]) for m in catalogue.mappings if m["LoadLayer"] == "GOLD"}
     documented = {tuple(entry["TargetObject"].split(".")) for entry in catalogue.lineage}
 
     assert warehouse <= documented
@@ -108,8 +108,8 @@ def test_dependency_cycles_are_detected():
 
 def test_staging_codes():
 
-    assert staging_code("stg.SalesTransaction") == "STG_SALES_TRANSACTION"
-    assert staging_code("stg.Site") == "STG_SITE"
+    assert staging_code("silver.SalesTransaction") == "SILVER_SALES_TRANSACTION"
+    assert staging_code("silver.Site") == "SILVER_SITE"
 
 
 def test_flatten_settings_types():
@@ -151,10 +151,10 @@ def test_unknown_handler_is_rejected(broken_pipeline):
 
 def test_handler_writing_the_wrong_target_is_rejected(broken_pipeline):
 
-    mapping = next(m for m in broken_pipeline["mappings"] if m["code"] == "DW_DIM_SITE")
+    mapping = next(m for m in broken_pipeline["mappings"] if m["code"] == "GOLD_DIM_SITE")
     mapping["handler"] = "DIM_PRODUCT"
 
-    with pytest.raises(ConfigurationError, match="may only write dw.DimProduct"):
+    with pytest.raises(ConfigurationError, match="may only write gold.DimProduct"):
         plan()
 
 
@@ -168,10 +168,10 @@ def test_unapproved_handler_is_rejected(broken_pipeline):
 
 def test_circular_dependency_is_rejected(broken_pipeline):
 
-    site = next(m for m in broken_pipeline["mappings"] if m["code"] == "DW_DIM_SITE")
-    sales = next(m for m in broken_pipeline["mappings"] if m["code"] == "DW_FACT_SALES")
-    site["depends_on"].append("DW_FACT_SALES")
-    assert "DW_DIM_SITE" in sales["depends_on"]
+    site = next(m for m in broken_pipeline["mappings"] if m["code"] == "GOLD_DIM_SITE")
+    sales = next(m for m in broken_pipeline["mappings"] if m["code"] == "GOLD_FACT_SALES")
+    site["depends_on"].append("GOLD_FACT_SALES")
+    assert "GOLD_DIM_SITE" in sales["depends_on"]
 
     with pytest.raises(ConfigurationError, match="Circular"):
         plan()
@@ -179,7 +179,7 @@ def test_circular_dependency_is_rejected(broken_pipeline):
 
 def test_unjustified_tolerance_is_rejected(broken_pipeline):
 
-    mapping = next(m for m in broken_pipeline["mappings"] if m["code"] == "DW_FACT_SALES")
+    mapping = next(m for m in broken_pipeline["mappings"] if m["code"] == "GOLD_FACT_SALES")
     control = next(c for c in mapping["controls"] if c["name"] == "TOTAL_AMOUNT")
     control.pop("tolerance_reason")
 
@@ -189,7 +189,7 @@ def test_unjustified_tolerance_is_rejected(broken_pipeline):
 
 def test_missing_lineage_is_rejected(broken_pipeline):
 
-    mapping = next(m for m in broken_pipeline["mappings"] if m["code"] == "DW_FACT_SALES")
+    mapping = next(m for m in broken_pipeline["mappings"] if m["code"] == "GOLD_FACT_SALES")
     mapping.pop("columns")
 
     with pytest.raises(ConfigurationError, match="column lineage"):

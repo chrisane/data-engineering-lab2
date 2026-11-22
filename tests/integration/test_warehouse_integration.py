@@ -129,7 +129,7 @@ def test_staging_tables_match_the_registry(database):
         SELECT s.name + '.' + t.name, c.name, TYPE_NAME(c.user_type_id), c.max_length, c.precision, c.scale,
                c.is_nullable
         FROM sys.columns AS c JOIN sys.tables AS t ON t.object_id = c.object_id
-        JOIN sys.schemas AS s ON s.schema_id = t.schema_id WHERE s.name = 'stg'""",
+        JOIN sys.schemas AS s ON s.schema_id = t.schema_id WHERE s.name = 'silver'""",
     )
     live = {(r[0], r[1]): r for r in rows}
 
@@ -137,7 +137,7 @@ def test_staging_tables_match_the_registry(database):
         for column in definition.columns:
             key = (definition.qualified_name, column.name)
             assert key in live, f"{key} missing from the database"
-            if definition.qualified_name == "stg.Supplier":
+            if definition.qualified_name == "silver.Supplier":
                 continue  # created before the registry-derived types (005)
             row = live[key]
             expected = column.sql_type.replace(" ", "").upper()
@@ -159,7 +159,7 @@ def test_every_warehouse_column_has_lineage(database):
         """
         SELECT s.name + '.' + t.name, c.name FROM sys.columns AS c
         JOIN sys.tables AS t ON t.object_id = c.object_id JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-        WHERE s.name = 'dw'""",
+        WHERE s.name = 'gold'""",
     )
     documented = {(r[0], r[1]) for r in query(database, "SELECT TargetObject, TargetColumn FROM meta.ColumnLineage")}
 
@@ -209,7 +209,7 @@ def test_blocked_documents_are_not_loaded_and_are_reported(database, first_run):
     )
 
     for (file_name,) in blocked:
-        assert not query(database, "SELECT 1 FROM dw.FactBranchCashup WHERE SourceFile = ?", file_name)
+        assert not query(database, "SELECT 1 FROM gold.FactBranchCashup WHERE SourceFile = ?", file_name)
         assert query(
             database,
             "SELECT 1 FROM audit.ExecutionError WHERE PipelineExecutionID = ? AND ErrorMessage LIKE ?",
@@ -222,7 +222,7 @@ def test_reprocessing_unchanged_data_writes_nothing(database, first_run):
 
     from orchestrator import run_pipeline
 
-    staged_before = query(database, "SELECT COUNT(*) FROM stg.GeneralLedger")[0][0]
+    staged_before = query(database, "SELECT COUNT(*) FROM silver.GeneralLedger")[0][0]
 
     assert run_pipeline() in (0, 1)
 
@@ -238,7 +238,7 @@ def test_reprocessing_unchanged_data_writes_nothing(database, first_run):
     )[0][0]
 
     assert changes == 0
-    assert query(database, "SELECT COUNT(*) FROM stg.GeneralLedger")[0][0] == staged_before
+    assert query(database, "SELECT COUNT(*) FROM silver.GeneralLedger")[0][0] == staged_before
     assert query(database, "SELECT COUNT(*) FROM audit.FactChangeLog")[0][0] == 0
 
 
@@ -294,25 +294,25 @@ def test_scd2_change_creates_a_new_version_and_keeps_history(database, first_run
         pipeline_id = new_test_batch(
             cursor,
             "product_master",
-            "stg.Product",
+            "silver.Product",
             ["product_id", "product_name", "category", "standard_cost", "selling_price", "dc_stocked"],
             transform="UPDATE {table} SET selling_price = selling_price + 10 "
             "WHERE IngestionRunID = ? AND product_id = 'P00001'",
         )
-        cursor.execute("EXEC dw.usp_LoadDimProduct @PipelineExecutionID = ?", pipeline_id)
+        cursor.execute("EXEC gold.usp_LoadDimProduct @PipelineExecutionID = ?", pipeline_id)
         while cursor.nextset():
             pass
 
         versions = cursor.execute(
             "SELECT RevisionNumber, IsCurrent, EffectiveTo, SellingPrice, ChangeType "
-            "FROM dw.DimProduct WHERE ProductID = 'P00001' ORDER BY RevisionNumber"
+            "FROM gold.DimProduct WHERE ProductID = 'P00001' ORDER BY RevisionNumber"
         ).fetchall()
         assert [(v.RevisionNumber, bool(v.IsCurrent)) for v in versions] == [(1, False), (2, True)]
         assert versions[0].EffectiveTo is not None and versions[1].ChangeType == "UPDATE"
         assert versions[1].SellingPrice == versions[0].SellingPrice + 10
 
         bad = cursor.execute(
-            "SELECT COUNT(*) FROM (SELECT ProductID FROM dw.DimProduct GROUP BY ProductID "
+            "SELECT COUNT(*) FROM (SELECT ProductID FROM gold.DimProduct GROUP BY ProductID "
             "HAVING SUM(CAST(IsCurrent AS INT)) <> 1) AS x"
         ).fetchone()[0]
         assert bad == 0
@@ -331,12 +331,12 @@ def test_fact_correction_and_removal_are_logged(database, first_run):
         pipeline_id = new_test_batch(
             cursor,
             "operating_expenses",
-            "stg.OperatingExpense",
+            "silver.OperatingExpense",
             ["expense_id", "expense_date", "site_id", "expense_type", "description", "amount"],
             transform="UPDATE {table} SET amount = amount + 1 WHERE IngestionRunID = ? AND expense_id = 'EXP000001'",
             drop_key="DELETE FROM {table} WHERE IngestionRunID = ? AND expense_id = 'EXP000002'",
         )
-        cursor.execute("EXEC dw.usp_LoadFactOperatingExpense @PipelineExecutionID = ?", pipeline_id)
+        cursor.execute("EXEC gold.usp_LoadFactOperatingExpense @PipelineExecutionID = ?", pipeline_id)
         while cursor.nextset():
             pass
 
@@ -355,7 +355,7 @@ def test_fact_correction_and_removal_are_logged(database, first_run):
         )
         assert log == {"EXP000001": "UPDATE", "EXP000002": "SOFT_DELETE"}
         assert cursor.execute(
-            "SELECT IsDeletedInSource FROM dw.FactOperatingExpense WHERE ExpenseID = 'EXP000002'"
+            "SELECT IsDeletedInSource FROM gold.FactOperatingExpense WHERE ExpenseID = 'EXP000002'"
         ).fetchone()[0]
 
     finally:
@@ -374,7 +374,7 @@ def test_reconciliation_detects_missing_rows_and_rerun_recovers(database, first_
     from reconciliation import run_control
 
     connection = database()
-    connection.cursor().execute("DELETE FROM dw.FactSales WHERE SaleID = (SELECT MIN(SaleID) FROM dw.FactSales)")
+    connection.cursor().execute("DELETE FROM gold.FactSales WHERE SaleID = (SELECT MIN(SaleID) FROM gold.FactSales)")
     connection.commit()
     connection.close()
 
@@ -383,7 +383,7 @@ def test_reconciliation_detects_missing_rows_and_rerun_recovers(database, first_
         "SELECT MAX(PipelineExecutionID) FROM audit.PipelineSourceBatch WHERE SourceName = 'sales_transactions'",
     )[0][0]
     plan, _ = load_plan()
-    mapping = next(m for m in plan if m["code"] == "DW_FACT_SALES")
+    mapping = next(m for m in plan if m["code"] == "GOLD_FACT_SALES")
     context = RunContext(pipeline_id, {}, {}, [], mapping)
     outcomes = {
         c["name"]: run_control(c, context) for c in mapping["controls"] if c["name"] in ("KEY_COVERAGE", "TOTAL_AMOUNT")
@@ -395,7 +395,7 @@ def test_reconciliation_detects_missing_rows_and_rerun_recovers(database, first_
     # Recovery: re-running the load restores the missing row (idempotent MERGE).
     connection = database()
     cursor = connection.cursor()
-    cursor.execute("EXEC dw.usp_LoadFactSales @PipelineExecutionID = ?", pipeline_id)
+    cursor.execute("EXEC gold.usp_LoadFactSales @PipelineExecutionID = ?", pipeline_id)
     while cursor.nextset():
         pass
     connection.commit()
@@ -413,17 +413,21 @@ def test_financial_statements_balance(database, first_run):
 
     assert not query(
         database,
-        "SELECT YearMonth FROM mart.vw_TrialBalance GROUP BY YearMonth "
+        "SELECT YearMonth FROM presentation.vw_TrialBalance GROUP BY YearMonth "
         "HAVING ABS(SUM(ClosingBalanceDebitPositive)) > 0.01",
     )
-    assert {r[0] for r in query(database, "SELECT DISTINCT Status FROM mart.vw_BalanceSheetCheck")} == {"BALANCED"}
+    assert {r[0] for r in query(database, "SELECT DISTINCT Status FROM presentation.vw_BalanceSheetCheck")} == {
+        "BALANCED"
+    }
 
 
 def test_operational_subledgers_reconcile_to_the_ledger(database, first_run):
 
     differences = {
         r[0]
-        for r in query(database, "SELECT DISTINCT Area FROM mart.vw_AccountReconciliation WHERE Status = 'DIFFERENCE'")
+        for r in query(
+            database, "SELECT DISTINCT Area FROM presentation.vw_AccountReconciliation WHERE Status = 'DIFFERENCE'"
+        )
     }
 
     # Depreciation differs by design of the source data (documented finding).
@@ -436,7 +440,7 @@ def test_cashup_exceptions_are_detected(database, first_run):
         (r[0], r[1].isoformat(), r[2])
         for r in query(
             database,
-            "SELECT SiteID, BusinessDate, ReconciliationStatus FROM mart.vw_CashupReconciliation "
+            "SELECT SiteID, BusinessDate, ReconciliationStatus FROM presentation.vw_CashupReconciliation "
             "WHERE ReconciliationStatus <> 'BALANCED'",
         )
     }
@@ -450,7 +454,7 @@ def test_cashup_exceptions_are_detected(database, first_run):
 
 def test_purchase_orders_meet_minimum_order_values(database, first_run):
 
-    assert {r[0] for r in query(database, "SELECT DISTINCT Status FROM mart.vw_PurchaseOrderCompliance")} == {
+    assert {r[0] for r in query(database, "SELECT DISTINCT Status FROM presentation.vw_PurchaseOrderCompliance")} == {
         "COMPLIANT"
     }
 
@@ -539,15 +543,15 @@ def test_personal_data_is_masked_for_report_readers(database, first_run):
         connection.commit()
 
         real = cursor.execute(
-            "SELECT TOP 1 CustomerName FROM mart.DimCustomer WHERE CustomerKey > 0 ORDER BY CustomerKey"
+            "SELECT TOP 1 CustomerName FROM presentation.DimCustomer WHERE CustomerKey > 0 ORDER BY CustomerKey"
         ).fetchone()[0]
         cursor.execute("EXECUTE AS USER = 'it_report_reader'")
         masked = cursor.execute(
-            "SELECT TOP 1 CustomerName FROM mart.DimCustomer WHERE CustomerKey > 0 ORDER BY CustomerKey"
+            "SELECT TOP 1 CustomerName FROM presentation.DimCustomer WHERE CustomerKey > 0 ORDER BY CustomerKey"
         ).fetchone()[0]
         denied = None
         try:
-            cursor.execute("SELECT TOP 1 * FROM stg.Customer")
+            cursor.execute("SELECT TOP 1 * FROM silver.Customer")
         except Exception as error:
             denied = error
         cursor.execute("REVERT")

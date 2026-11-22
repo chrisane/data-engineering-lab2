@@ -1,6 +1,6 @@
 # Power BI semantic model
 
-Power BI connects to the **`mart` schema only** (role `role_report_reader`). The views hide technical
+Power BI connects to the **`presentation` schema only** (role `role_report_reader`). The views hide technical
 columns and soft-deleted rows, so the warehouse can change underneath without breaking reports.
 
 ## Model
@@ -10,12 +10,12 @@ one combined model:
 
 | Area | Fact tables | Dimensions |
 |---|---|---|
-| Sales | `mart.FactSales`, `mart.FactSalesLine` | DimDate, DimSite, DimCustomer, DimProduct, DimPaymentMethod |
-| Inventory | `mart.FactInventoryMovement`, `mart.FactInventorySnapshot` | DimDate, DimSite, DimProduct |
-| Purchasing | `mart.FactPurchaseOrder`, `mart.FactPurchaseOrderLine`, `mart.FactGoodsReceipt`, `mart.FactSupplierInvoice`, `mart.FactSupplierRebate` | DimDate, DimSupplier, DimProduct, DimSite |
-| Finance | `mart.FactGeneralLedger`, `mart.FactOperatingExpense` | DimDate, DimAccount, DimSite |
-| Assets | `mart.FactAssetDepreciation` | DimDate, DimAsset, DimSite |
-| Cash management | `mart.FactBranchCashup` | DimDate, DimSite |
+| Sales | `presentation.FactSales`, `presentation.FactSalesLine` | DimDate, DimSite, DimCustomer, DimProduct, DimPaymentMethod |
+| Inventory | `presentation.FactInventoryMovement`, `presentation.FactInventorySnapshot` | DimDate, DimSite, DimProduct |
+| Purchasing | `presentation.FactPurchaseOrder`, `presentation.FactPurchaseOrderLine`, `presentation.FactGoodsReceipt`, `presentation.FactSupplierInvoice`, `presentation.FactSupplierRebate` | DimDate, DimSupplier, DimProduct, DimSite |
+| Finance | `presentation.FactGeneralLedger`, `presentation.FactOperatingExpense` | DimDate, DimAccount, DimSite |
+| Assets | `presentation.FactAssetDepreciation` | DimDate, DimAsset, DimSite |
+| Cash management | `presentation.FactBranchCashup` | DimDate, DimSite |
 
 ### Relationships
 
@@ -32,7 +32,7 @@ All single-direction, many-to-one, from fact key to dimension key:
   sales by `DimSite` and `DimDate`).
 
 Hide all key columns, set `Sort by column` for month names (`MonthNumber`) and keep exception views
-(`mart.vw_*`) as separate tables for exception pages.
+(`presentation.vw_*`) as separate tables for exception pages.
 
 ### Measures
 

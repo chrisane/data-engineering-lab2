@@ -1,9 +1,9 @@
 USE RetailDataPlatform;
 GO
 
-IF OBJECT_ID(N'stg.Supplier', N'U') IS NULL
+IF OBJECT_ID(N'silver.Supplier', N'U') IS NULL
 BEGIN
-    CREATE TABLE stg.Supplier (
+    CREATE TABLE silver.Supplier (
         StagingID BIGINT IDENTITY(1,1) NOT NULL
             CONSTRAINT PK_stg_Supplier PRIMARY KEY,
 

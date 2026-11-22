@@ -20,7 +20,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER PROCEDURE dw.usp_LoadDimSupplier
+CREATE OR ALTER PROCEDURE gold.usp_LoadDimSupplier
     @IngestionRunID VARCHAR(40)
 AS
 BEGIN
@@ -39,7 +39,7 @@ BEGIN
         BEGIN TRANSACTION;
 
         EXEC @LockResult = sys.sp_getapplock
-            @Resource = 'dw.DimSupplier.SCD2',
+            @Resource = 'gold.DimSupplier.SCD2',
             @LockMode = 'Exclusive',
             @LockOwner = 'Transaction',
             @LockTimeout = 15000;
@@ -55,7 +55,7 @@ BEGIN
             THROW 51002, 'No completed supplier staging load for this ingestion run.', 1;
 
         SELECT @SourceRows = COUNT(*)
-        FROM stg.Supplier
+        FROM silver.Supplier
         WHERE IngestionRunID = @IngestionRunID;
 
         IF @SourceRows = 0
@@ -63,7 +63,7 @@ BEGIN
 
         IF EXISTS (
             SELECT supplier_id
-            FROM stg.Supplier
+            FROM silver.Supplier
             WHERE IngestionRunID = @IngestionRunID
             GROUP BY supplier_id
             HAVING COUNT(*) > 1
@@ -73,7 +73,7 @@ BEGIN
         -- Require the staging batch to be exactly one completed, audited file version.
         IF (SELECT COUNT(*) FROM (
                 SELECT SourceFileHash, SourceFile
-                FROM stg.Supplier
+                FROM silver.Supplier
                 WHERE IngestionRunID = @IngestionRunID
                 GROUP BY SourceFileHash, SourceFile
             ) AS Versions) <> 1
@@ -85,7 +85,7 @@ BEGIN
             CROSS APPLY (
                 SELECT COUNT(*) AS BatchRows, MIN(s.SourceFileHash) AS FileHash,
                        MIN(s.SourceFile) AS FileName
-                FROM stg.Supplier AS s
+                FROM silver.Supplier AS s
                 WHERE s.IngestionRunID = @IngestionRunID
             ) AS b
             WHERE a.IngestionRunID = @IngestionRunID
@@ -104,13 +104,13 @@ BEGIN
 
         -- Prevent replaying an old batch after a newer batch has been processed.
         IF EXISTS (
-            SELECT 1 FROM dw.DimSupplier
+            SELECT 1 FROM gold.DimSupplier
             WHERE IngestionRunID > @IngestionRunID
         )
             THROW 51007, 'A newer supplier batch is already in the warehouse; historical replay needs a controlled process.', 1;
 
         SELECT s.* INTO #Batch
-        FROM stg.Supplier AS s
+        FROM silver.Supplier AS s
         WHERE s.IngestionRunID = @IngestionRunID;
 
         SELECT b.*,
@@ -127,7 +127,7 @@ BEGIN
                     ELSE 'UNCHANGED' END AS ActionType
         INTO #Changes
         FROM #Batch AS b
-        LEFT JOIN dw.DimSupplier AS d WITH (UPDLOCK, HOLDLOCK)
+        LEFT JOIN gold.DimSupplier AS d WITH (UPDLOCK, HOLDLOCK)
           ON d.SupplierID = b.supplier_id AND d.IsCurrent = 1;
 
         SELECT @Inserted = COUNT(*) FROM #Changes WHERE ActionType = 'INITIAL';
@@ -140,11 +140,11 @@ BEGIN
         UPDATE d
         SET d.EffectiveTo = @AsOf,
             d.IsCurrent = 0
-        FROM dw.DimSupplier AS d
+        FROM gold.DimSupplier AS d
         INNER JOIN #Changes AS c ON c.CurrentSupplierKey = d.SupplierKey
         WHERE c.ActionType = 'UPDATE';
 
-        INSERT dw.DimSupplier (
+        INSERT gold.DimSupplier (
             SupplierID, SupplierName, Location, MinimumOrderValueNAD,
             RebateRate, PaymentTermsDays, EffectiveFrom, EffectiveTo,
             IsCurrent, RevisionNumber, ChangeType, ChangeReason,

@@ -96,5 +96,5 @@ No orchestrator change is needed: the plan, ordering, gating and reconciliation 
 - SQL: one migration per change, idempotent guards, `SET XACT_ABORT ON`, parameterised dynamic SQL
   only with validated identifiers, explicit column lists in presentation views (checked by
   `tests/test_sql_standards.py`).
-- Naming: `stg.<Entity>` with source column names; `dw.Dim<Entity>` / `dw.Fact<Process>` in PascalCase;
-  `mart.vw_<Purpose>`; handler codes `DIM_*`, `FACT_*`, `RECON_*`; mapping codes `STG_*`, `DW_*`.
+- Naming: `silver.<Entity>` with source column names; `gold.Dim<Entity>` / `gold.Fact<Process>` in PascalCase;
+  `presentation.vw_<Purpose>`; handler codes `DIM_*`, `FACT_*`, `RECON_*`; mapping codes `SILVER_*`, `GOLD_*`, `PRESENTATION_*`.

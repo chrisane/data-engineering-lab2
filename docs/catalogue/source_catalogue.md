@@ -6,26 +6,26 @@ Every source the platform ingests or generates, with its owner, steward, classif
 
 | Source | Type | Path | Staging table | System of record | Data owner | Data steward | Classification | Personal data | Retention (years) | Update frequency | Freshness (hours) | Critical |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| site_master | Excel | site_master.xlsx | stg.Site | ERP | Head of Operations (Operations) | Master Data Steward (Operations) | INTERNAL | No | 5 | On change | 8760 | Yes |
-| department_master | Excel | department_master.xlsx | stg.Department | ERP | Head of Human Resources (Human Resources) | HR Administrator (Human Resources) | INTERNAL | No | 5 | On change | 8760 |  |
-| product_master | Excel | product_master.xlsx | stg.Product | ERP | Procurement Manager (Procurement) | Master Data Steward (Procurement) | INTERNAL | No | 5 | On change | 8760 | Yes |
-| supplier_master | Excel | supplier_master.xlsx | stg.Supplier | ERP | Procurement Manager (Procurement) | Supplier Master Data Steward (Procurement) | CONFIDENTIAL | No | 7 | On change | 8760 |  |
-| product_supplier | Excel | product_supplier.xlsx | stg.ProductSupplier | ERP | Procurement Manager (Procurement) | Supplier Master Data Steward (Procurement) | CONFIDENTIAL | No | 5 | On change | 8760 |  |
-| customer_master | Excel | customer_master.xlsx | stg.Customer | ERP | Head of Sales (Sales) | Customer Data Steward (Sales) | RESTRICTED | Yes | 5 | Daily | 36 |  |
-| purchase_orders | Excel | purchase_orders.xlsx | stg.PurchaseOrder | ERP | Procurement Manager (Procurement) | Procurement Officer (Procurement) | CONFIDENTIAL | No | 7 | Daily | 36 |  |
-| purchase_order_lines | Excel | purchase_order_lines.xlsx | stg.PurchaseOrderLine | ERP | Procurement Manager (Procurement) | Procurement Officer (Procurement) | CONFIDENTIAL | No | 7 | Daily | 36 |  |
-| goods_receipts | Excel | goods_receipts.xlsx | stg.GoodsReceipt | ERP | Warehouse Manager (Warehousing) | Receiving Supervisor (Warehousing) | INTERNAL | No | 7 | Daily | 36 |  |
-| supplier_invoices | Excel | supplier_invoices.xlsx | stg.SupplierInvoice | ERP | Financial Controller (Finance) | Accounts Payable Clerk (Finance) | CONFIDENTIAL | No | 7 | Daily | 36 |  |
-| supplier_rebates | Excel | supplier_rebates.xlsx | stg.SupplierRebate | ERP | Financial Controller (Finance) | Procurement Officer (Procurement) | CONFIDENTIAL | No | 7 | Quarterly | 2400 |  |
-| sales_transactions | Excel | sales_transactions.xlsx | stg.SalesTransaction | POS | Head of Sales (Sales) | Sales Data Analyst (Sales) | CONFIDENTIAL | Yes | 7 | Daily | 36 |  |
-| sales_lines | Excel | sales_lines.xlsx | stg.SalesLine | POS | Head of Sales (Sales) | Sales Data Analyst (Sales) | CONFIDENTIAL | No | 7 | Daily | 36 |  |
-| inventory_movements | Excel | inventory_movements.xlsx | stg.InventoryMovement | ERP | Warehouse Manager (Warehousing) | Inventory Controller (Warehousing) | INTERNAL | No | 7 | Daily | 36 |  |
-| operating_expenses | Excel | operating_expenses.xlsx | stg.OperatingExpense | ERP | Financial Controller (Finance) | Accounts Payable Clerk (Finance) | CONFIDENTIAL | No | 7 | Monthly | 840 |  |
-| general_ledger | Excel | general_ledger.xlsx | stg.GeneralLedger | ERP | Chief Financial Officer (Finance) | General Ledger Accountant (Finance) | CONFIDENTIAL | No | 7 | Daily | 36 | Yes |
-| fixed_assets_erp | Excel | fixed_assets_erp.xlsx | stg.FixedAsset | ERP | Financial Controller (Finance) | Fixed Asset Accountant (Finance) | CONFIDENTIAL | No | 7 | Monthly | 840 |  |
-| branch_local_assets | Excel | branch_local_assets.xlsx | stg.BranchLocalAsset | Branch Excel registers | Head of Operations (Operations) | Branch Administrator (Operations) | CONFIDENTIAL | Yes | 5 | Monthly | 840 |  |
-| branch_cashup | PDF | cashups/*.pdf | stg.BranchCashup | POS cash-up reports (PDF) | Head of Operations (Operations) | Cash Office Supervisor (Finance) | CONFIDENTIAL | Yes | 7 | Per shift | 36 |  |
-| chart_of_accounts | Reference | config/chart_of_accounts.csv | stg.ChartOfAccounts | Configuration repository | Chief Financial Officer (Finance) | General Ledger Accountant (Finance) | INTERNAL | No |  | On change |  | Yes |
+| site_master | Excel | site_master.xlsx | silver.Site | ERP | Head of Operations (Operations) | Master Data Steward (Operations) | INTERNAL | No | 5 | On change | 8760 | Yes |
+| department_master | Excel | department_master.xlsx | silver.Department | ERP | Head of Human Resources (Human Resources) | HR Administrator (Human Resources) | INTERNAL | No | 5 | On change | 8760 |  |
+| product_master | Excel | product_master.xlsx | silver.Product | ERP | Procurement Manager (Procurement) | Master Data Steward (Procurement) | INTERNAL | No | 5 | On change | 8760 | Yes |
+| supplier_master | Excel | supplier_master.xlsx | silver.Supplier | ERP | Procurement Manager (Procurement) | Supplier Master Data Steward (Procurement) | CONFIDENTIAL | No | 7 | On change | 8760 |  |
+| product_supplier | Excel | product_supplier.xlsx | silver.ProductSupplier | ERP | Procurement Manager (Procurement) | Supplier Master Data Steward (Procurement) | CONFIDENTIAL | No | 5 | On change | 8760 |  |
+| customer_master | Excel | customer_master.xlsx | silver.Customer | ERP | Head of Sales (Sales) | Customer Data Steward (Sales) | RESTRICTED | Yes | 5 | Daily | 36 |  |
+| purchase_orders | Excel | purchase_orders.xlsx | silver.PurchaseOrder | ERP | Procurement Manager (Procurement) | Procurement Officer (Procurement) | CONFIDENTIAL | No | 7 | Daily | 36 |  |
+| purchase_order_lines | Excel | purchase_order_lines.xlsx | silver.PurchaseOrderLine | ERP | Procurement Manager (Procurement) | Procurement Officer (Procurement) | CONFIDENTIAL | No | 7 | Daily | 36 |  |
+| goods_receipts | Excel | goods_receipts.xlsx | silver.GoodsReceipt | ERP | Warehouse Manager (Warehousing) | Receiving Supervisor (Warehousing) | INTERNAL | No | 7 | Daily | 36 |  |
+| supplier_invoices | Excel | supplier_invoices.xlsx | silver.SupplierInvoice | ERP | Financial Controller (Finance) | Accounts Payable Clerk (Finance) | CONFIDENTIAL | No | 7 | Daily | 36 |  |
+| supplier_rebates | Excel | supplier_rebates.xlsx | silver.SupplierRebate | ERP | Financial Controller (Finance) | Procurement Officer (Procurement) | CONFIDENTIAL | No | 7 | Quarterly | 2400 |  |
+| sales_transactions | Excel | sales_transactions.xlsx | silver.SalesTransaction | POS | Head of Sales (Sales) | Sales Data Analyst (Sales) | CONFIDENTIAL | Yes | 7 | Daily | 36 |  |
+| sales_lines | Excel | sales_lines.xlsx | silver.SalesLine | POS | Head of Sales (Sales) | Sales Data Analyst (Sales) | CONFIDENTIAL | No | 7 | Daily | 36 |  |
+| inventory_movements | Excel | inventory_movements.xlsx | silver.InventoryMovement | ERP | Warehouse Manager (Warehousing) | Inventory Controller (Warehousing) | INTERNAL | No | 7 | Daily | 36 |  |
+| operating_expenses | Excel | operating_expenses.xlsx | silver.OperatingExpense | ERP | Financial Controller (Finance) | Accounts Payable Clerk (Finance) | CONFIDENTIAL | No | 7 | Monthly | 840 |  |
+| general_ledger | Excel | general_ledger.xlsx | silver.GeneralLedger | ERP | Chief Financial Officer (Finance) | General Ledger Accountant (Finance) | CONFIDENTIAL | No | 7 | Daily | 36 | Yes |
+| fixed_assets_erp | Excel | fixed_assets_erp.xlsx | silver.FixedAsset | ERP | Financial Controller (Finance) | Fixed Asset Accountant (Finance) | CONFIDENTIAL | No | 7 | Monthly | 840 |  |
+| branch_local_assets | Excel | branch_local_assets.xlsx | silver.BranchLocalAsset | Branch Excel registers | Head of Operations (Operations) | Branch Administrator (Operations) | CONFIDENTIAL | Yes | 5 | Monthly | 840 |  |
+| branch_cashup | PDF | cashups/*.pdf | silver.BranchCashup | POS cash-up reports (PDF) | Head of Operations (Operations) | Cash Office Supervisor (Finance) | CONFIDENTIAL | Yes | 7 | Per shift | 36 |  |
+| chart_of_accounts | Reference | config/chart_of_accounts.csv | silver.ChartOfAccounts | Configuration repository | Chief Financial Officer (Finance) | General Ledger Accountant (Finance) | INTERNAL | No |  | On change |  | Yes |
 | calendar | Generated |  |  | Data platform | Data Engineering | Data Engineering | PUBLIC | No |  | On change |  |  |
 
 Descriptions:
@@ -50,4 +50,4 @@ Descriptions:
 - **branch_local_assets**: Small assets below the capitalisation threshold, kept by branches.
 - **branch_cashup**: End-of-shift branch cash-up reports.
 - **chart_of_accounts**: Chart of accounts maintained by Finance (configuration-controlled reference data).
-- **calendar**: Calendar generated by the warehouse (dw.usp_LoadDimDate).
+- **calendar**: Calendar generated by the warehouse (gold.usp_LoadDimDate).

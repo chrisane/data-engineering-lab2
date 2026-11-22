@@ -506,7 +506,7 @@ def control_gl_balance(cursor, control, context) -> tuple:
     tolerance = Decimal(str(control.get("tolerance") or 0))
 
     cursor.execute(
-        "SELECT COUNT(*) FROM (SELECT JournalID FROM dw.FactGeneralLedger WHERE IsDeletedInSource = 0 "
+        "SELECT COUNT(*) FROM (SELECT JournalID FROM gold.FactGeneralLedger WHERE IsDeletedInSource = 0 "
         "GROUP BY JournalID HAVING ABS(SUM(DebitAmount) - SUM(CreditAmount)) > ?) AS x",
         tolerance,
     )
@@ -514,7 +514,7 @@ def control_gl_balance(cursor, control, context) -> tuple:
 
     cursor.execute(
         "SELECT ISNULL(SUM(DebitAmount), 0), ISNULL(SUM(CreditAmount), 0) "
-        "FROM dw.FactGeneralLedger WHERE IsDeletedInSource = 0"
+        "FROM gold.FactGeneralLedger WHERE IsDeletedInSource = 0"
     )
     debit, credit = cursor.fetchone()
 
@@ -550,7 +550,7 @@ def control_supplier(cursor, control, context) -> tuple:
     cursor.execute(
         "UPDATE audit.ReconciliationResult SET PipelineExecutionID = ?, MappingID = ?, "
         "ControlCode = CONCAT(?, '.', CheckCode), Severity = ?, SourceName = 'supplier_master', "
-        "TargetObject = 'dw.DimSupplier' WHERE PipelineExecutionID IS NULL AND IngestionRunID = ? "
+        "TargetObject = 'gold.DimSupplier' WHERE PipelineExecutionID IS NULL AND IngestionRunID = ? "
         "AND SourceFileHash = ? AND CheckedAt >= ?",
         context.pipeline_id,
         context.mapping["id"],

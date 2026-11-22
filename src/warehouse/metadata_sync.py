@@ -45,7 +45,7 @@ CONFIG_FILES = [
     "chart_of_accounts.csv",
 ]
 
-TABLE_NAME = re.compile(r"^(stg|dw|mart)\.[A-Za-z][A-Za-z0-9_]*$")
+TABLE_NAME = re.compile(r"^(silver|gold|presentation)\.[A-Za-z][A-Za-z0-9_]*$")
 SEVERITIES = {"CRITICAL", "ERROR", "WARNING"}
 STRATEGIES = {"APPEND", "UPSERT", "SCD1", "SCD2", "FULL_REFRESH"}
 
@@ -124,11 +124,11 @@ def git_commit() -> str | None:
 
 
 def staging_code(definition_table: str) -> str:
-    """stg.SalesTransaction -> STG_SALES_TRANSACTION"""
+    """silver.SalesTransaction -> SILVER_SALES_TRANSACTION"""
 
     name = definition_table.split(".", 1)[1]
 
-    return "STG_" + re.sub(r"(?<!^)(?=[A-Z])", "_", name).upper()
+    return "SILVER_" + re.sub(r"(?<!^)(?=[A-Z])", "_", name).upper()
 
 
 # ---------------------------------------------------------
@@ -223,7 +223,7 @@ def plan() -> Catalogue:
                 "ValidationRule": "Required" + ("; unique" if column == "account_code" else ""),
                 "ColumnOrder": len([e for e in catalogue.elements if e["SourceName"] == "chart_of_accounts"]) + 1,
                 "ContainsPersonalData": False,
-                "StagingColumn": f"stg.ChartOfAccounts.{column}",
+                "StagingColumn": f"silver.ChartOfAccounts.{column}",
             }
         )
 
@@ -267,7 +267,7 @@ def plan() -> Catalogue:
                 "code": override.get("code", staging_code(definition.qualified_name)),
                 "source": source,
                 "target": definition.qualified_name,
-                "layer": "STAGING",
+                "layer": "SILVER",
                 "strategy": "APPEND",
                 "handler": override.get("handler", "GENERIC_STAGING"),
                 "order": 10,
@@ -284,7 +284,7 @@ def plan() -> Catalogue:
                     "code": override.get("code", staging_code(config["staging_table"])),
                     "source": source,
                     "target": config["staging_table"],
-                    "layer": "STAGING",
+                    "layer": "SILVER",
                     "strategy": "APPEND",
                     "handler": override["handler"],
                     "order": 10,
@@ -294,7 +294,7 @@ def plan() -> Catalogue:
             )
 
     warehouse_mappings = [
-        {**m, "layer": m.get("layer", "WAREHOUSE"), "depends_on": m.get("depends_on") or []}
+        {**m, "layer": m.get("layer", "GOLD"), "depends_on": m.get("depends_on") or []}
         for m in pipeline.get("mappings") or []
     ]
 
@@ -316,7 +316,9 @@ def plan() -> Catalogue:
             problems.append(f"Mapping {label}: unknown source {mapping['source']!r}.")
 
         if not TABLE_NAME.match(mapping["target"]):
-            problems.append(f"Mapping {label}: target {mapping['target']!r} is not schema.Table in stg/dw/mart.")
+            problems.append(
+                f"Mapping {label}: target {mapping['target']!r} is not schema.Table in silver/gold/presentation."
+            )
 
         if mapping["strategy"] not in STRATEGIES:
             problems.append(f"Mapping {label}: unknown strategy {mapping['strategy']!r}.")
@@ -340,7 +342,7 @@ def plan() -> Catalogue:
             else:
                 catalogue.dependencies.append((label, parent))
 
-        if mapping["layer"] in ("WAREHOUSE", "MART") and not mapping.get("columns"):
+        if mapping["layer"] in ("GOLD", "PRESENTATION") and not mapping.get("columns"):
             problems.append(f"Mapping {label}: warehouse mappings must document column lineage (columns).")
 
         catalogue.mappings.append(
@@ -396,7 +398,7 @@ def plan() -> Catalogue:
             )
 
         # ---------------- lineage
-        if mapping["layer"] == "STAGING":
+        if mapping["layer"] == "SILVER":
             definition = staging_tables.get(mapping["source"])
             for column in definition.column_names if definition else []:
                 catalogue.lineage.append(

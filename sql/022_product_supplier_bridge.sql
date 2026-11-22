@@ -10,14 +10,14 @@ GO
     is flagged IsDeletedInSource (no longer an approved supplier).
 */
 
-IF OBJECT_ID(N'dw.BridgeProductSupplier', N'U') IS NULL
+IF OBJECT_ID(N'gold.BridgeProductSupplier', N'U') IS NULL
 BEGIN
-    CREATE TABLE dw.BridgeProductSupplier (
+    CREATE TABLE gold.BridgeProductSupplier (
         ProductSupplierKey BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_BridgeProductSupplier PRIMARY KEY,
         ProductID NVARCHAR(50) NOT NULL,
         SupplierID NVARCHAR(50) NOT NULL,
-        ProductKey INT NOT NULL CONSTRAINT FK_BridgeProductSupplier_Product REFERENCES dw.DimProduct(ProductKey),
-        SupplierKey BIGINT NOT NULL CONSTRAINT FK_BridgeProductSupplier_Supplier REFERENCES dw.DimSupplier(SupplierKey),
+        ProductKey INT NOT NULL CONSTRAINT FK_BridgeProductSupplier_Product REFERENCES gold.DimProduct(ProductKey),
+        SupplierKey BIGINT NOT NULL CONSTRAINT FK_BridgeProductSupplier_Supplier REFERENCES gold.DimSupplier(SupplierKey),
         SupplierUnitCost DECIMAL(19, 4) NOT NULL,
         IsPreferredSupplier BIT NOT NULL,       -- lowest agreed unit cost for the product
         IngestionRunID VARCHAR(40) NOT NULL,
@@ -34,7 +34,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER PROCEDURE dw.usp_LoadBridgeProductSupplier @PipelineExecutionID BIGINT
+CREATE OR ALTER PROCEDURE gold.usp_LoadBridgeProductSupplier @PipelineExecutionID BIGINT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -46,7 +46,7 @@ BEGIN
         EXEC audit.usp_RequireSingleBatch @PipelineExecutionID, N'product_supplier', @Run OUTPUT, @Hash OUTPUT;
 
         BEGIN TRANSACTION;
-        EXEC audit.usp_AcquireLoadLock N'dw.BridgeProductSupplier';
+        EXEC audit.usp_AcquireLoadLock N'gold.BridgeProductSupplier';
 
         CREATE TABLE #MergeActions (ActionType NVARCHAR(10), BusinessKey NVARCHAR(200), OldRowHash BINARY(32),
                                     NewRowHash BINARY(32), OldDeleted BIT, NewDeleted BIT);
@@ -56,15 +56,15 @@ BEGIN
                IIF(ROW_NUMBER() OVER (PARTITION BY ps.product_id ORDER BY ps.supplier_unit_cost, ps.supplier_id) = 1,
                    1, 0) AS IsPreferred
         INTO #Source
-        FROM stg.ProductSupplier AS ps
-        LEFT JOIN dw.DimProduct AS p ON p.ProductID = ps.product_id AND p.IsCurrent = 1
-        LEFT JOIN dw.DimSupplier AS s ON s.SupplierID = ps.supplier_id AND s.IsCurrent = 1
+        FROM silver.ProductSupplier AS ps
+        LEFT JOIN gold.DimProduct AS p ON p.ProductID = ps.product_id AND p.IsCurrent = 1
+        LEFT JOIN gold.DimSupplier AS s ON s.SupplierID = ps.supplier_id AND s.IsCurrent = 1
         WHERE ps.IngestionRunID = @Run AND ps.SourceFileHash = @Hash;
         SET @Rows = @@ROWCOUNT;
 
         SELECT @Unknown = COUNT(*) FROM #Source WHERE ProductKey = -1 OR SupplierKey = -1;
 
-        MERGE dw.BridgeProductSupplier AS t
+        MERGE gold.BridgeProductSupplier AS t
         USING (SELECT *, HASHBYTES('SHA2_256', CONCAT_WS(N'|', ProductKey, SupplierKey,
                         CONVERT(NVARCHAR(50), supplier_unit_cost), IsPreferred)) AS RowHash
                FROM #Source) AS s
@@ -85,15 +85,15 @@ BEGIN
                deleted.RowHash, inserted.RowHash, deleted.IsDeletedInSource, inserted.IsDeletedInSource
         INTO #MergeActions;
 
-        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'DW_BRIDGE_PRODUCT_SUPPLIER',
-             N'dw.BridgeProductSupplier', N'product_supplier', @Run, @Hash, @Rows, @Unknown;
+        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'GOLD_BRIDGE_PRODUCT_SUPPLIER',
+             N'gold.BridgeProductSupplier', N'product_supplier', @Run, @Hash, @Rows, @Unknown;
 
         COMMIT TRANSACTION;
     END TRY
     BEGIN CATCH
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         DECLARE @Error NVARCHAR(4000) = ERROR_MESSAGE();
-        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'DW_BRIDGE_PRODUCT_SUPPLIER', N'dw.BridgeProductSupplier', N'product_supplier', @Error;
+        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'GOLD_BRIDGE_PRODUCT_SUPPLIER', N'gold.BridgeProductSupplier', N'product_supplier', @Error;
         THROW;
     END CATCH
 END;

@@ -58,10 +58,10 @@ BEGIN TRANSACTION;
 DECLARE @StagingID INT, @WarehouseID INT;
 SELECT @StagingID=m.MappingID FROM meta.SourceTargetMapping AS m
 JOIN meta.DataSource AS s ON s.SourceID=m.SourceID
-WHERE s.SourceName='supplier_master' AND m.TargetSchema='stg' AND m.TargetTable='Supplier';
+WHERE s.SourceName='supplier_master' AND m.TargetSchema='silver' AND m.TargetTable='Supplier';
 SELECT @WarehouseID=m.MappingID FROM meta.SourceTargetMapping AS m
 JOIN meta.DataSource AS s ON s.SourceID=m.SourceID
-WHERE s.SourceName='supplier_master' AND m.TargetSchema='dw' AND m.TargetTable='DimSupplier';
+WHERE s.SourceName='supplier_master' AND m.TargetSchema='gold' AND m.TargetTable='DimSupplier';
 IF @StagingID IS NULL OR @WarehouseID IS NULL
  THROW 51001, 'Expected Supplier staging and warehouse mappings are missing.', 1;
 IF NOT EXISTS (SELECT 1 FROM meta.MappingDependency WHERE MappingID=@WarehouseID AND DependsOnMappingID=@StagingID)

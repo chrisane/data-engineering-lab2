@@ -7,6 +7,11 @@ generator, or to get a known starting point.
 It removes **data only**. The database schema is rebuilt from the same version-controlled migrations
 in `sql/`, so nothing about the schema, configuration or code changes.
 
+> **Databases built before 2026-11-22** use the old schema names (`stg`, `dw`, `mart`) and
+> `python scripts/migrate.py status` reports most migrations as `CHANGED`. Follow this guide once to
+> rebuild with the medallion names (`silver`, `gold`, `presentation`); see
+> [sql_migrations.md](sql_migrations.md#baseline-reset-medallion-schema-names-2026-11-22).
+
 ## What gets wiped
 
 The data lives in three places, and all three must be cleared **together**. They reference each other
@@ -20,7 +25,7 @@ and skip them).
 | `data/raw/`, `data/quarantine/`, `data/processed/` | Ingested copies, quarantined files and reports, per run | Delete (keep `.gitkeep`) |
 | `data/archive/staging/` | Staging batches archived by retention (only if retention has run) | Delete |
 | `logs/` | Ingestion manifest, run history, validation results, eligibility, pipeline logs | Delete (keep `.gitkeep`) |
-| SQL Server database `RetailDataPlatform` | Staging, warehouse, marts, audit and metadata | Drop, then rebuild from migrations |
+| SQL Server database `RetailDataPlatform` | Silver, gold and presentation layers, audit and metadata | Drop, then rebuild from migrations |
 
 The repository itself ships with no data: only the empty `data/` folders (`.gitkeep`) and `logs/`.
 Everything listed above is created on your machine and is ignored by git. `config/`, `sql/`, `src/`
@@ -164,8 +169,8 @@ and in SQL Server:
 ```sql
 SELECT TOP 1 * FROM audit.vw_PipelineExecutionHistory ORDER BY PipelineExecutionID DESC;
 SELECT * FROM audit.vw_LatestReconciliation WHERE CheckStatus = 'FAIL';   -- expect no rows
-SELECT COUNT(*) AS SalesRows FROM dw.FactSales;
-SELECT * FROM mart.vw_CashupReconciliation WHERE ReconciliationStatus <> 'BALANCED';  -- the planted cash-up exceptions
+SELECT COUNT(*) AS SalesRows FROM gold.FactSales;
+SELECT * FROM presentation.vw_CashupReconciliation WHERE ReconciliationStatus <> 'BALANCED';  -- the planted cash-up exceptions
 ```
 
 ## Troubleshooting

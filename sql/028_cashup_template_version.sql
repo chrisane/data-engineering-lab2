@@ -15,8 +15,8 @@ GO
     template 1 but are not rewritten (staging history is kept as loaded).
 */
 
-IF COL_LENGTH(N'stg.BranchCashup', N'template_version') IS NULL
+IF COL_LENGTH(N'silver.BranchCashup', N'template_version') IS NULL
 BEGIN
-    ALTER TABLE stg.BranchCashup ADD [template_version] NVARCHAR(50) NULL;
+    ALTER TABLE silver.BranchCashup ADD [template_version] NVARCHAR(50) NULL;
 END;
 GO

@@ -149,7 +149,7 @@ def mappings(catalogue: Catalogue) -> str:
     for entry in catalogue.lineage:
         lineage[entry["TargetObject"]].append(entry)
     for target, entries in lineage.items():
-        if not target.startswith("dw."):
+        if not target.startswith("gold."):
             continue
         parts.append(f"\n## {target}\n\nSource: {entries[0]['SourceName']} via {entries[0]['SourceObject']}\n\n")
         parts.append(

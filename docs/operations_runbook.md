@@ -126,7 +126,7 @@ branches can move to a new template on different days. The layouts are registere
 | Retiring an old template | Documents dated after its `accepted_until` are blocked with "accepted until <date>" | Set `accepted_until` on the old version once every branch has switched |
 
 Every check is reported under the canonical field name (for example `cash_sales`), whatever the label,
-so validation coverage is identical across templates. `stg.BranchCashup.template_version` records the
+so validation coverage is identical across templates. `silver.BranchCashup.template_version` records the
 layout each document was read with.
 
 **After a contract change.** Nothing to do. Every validation records a fingerprint of the source's
@@ -139,7 +139,7 @@ that source, including versions held from older runs, before the gate decides.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `Named Pipes Provider: Could not open a connection` | Wrong `SQL_SERVER` in `.env` | Use `localhost` (or the exact instance name). |
-| `MIGRATION ERROR: ... edited after being applied` | An applied migration file changed | Revert the edit; put the change in a new migration. |
+| `MIGRATION ERROR: ... edited after being applied` | An applied migration file changed | Revert the edit; put the change in a new migration. If it lists most scripts, the database predates the 2026-11-22 medallion rename: rebuild it ([regenerating_data.md](regenerating_data.md)). |
 | `Database ... has no migration history` | Database built before migration tracking | `python scripts/migrate.py baseline --through <last applied>` once. |
 | `Configuration problems:` from metadata sync | Inconsistent `config/*.yaml` | The message lists each problem (unknown handler, missing lineage, cycle, unjustified tolerance...). |
 | `Execution plan rejected` | Metadata references an unapproved handler or wrong target | Fix `config/pipeline.yaml`, re-sync. |

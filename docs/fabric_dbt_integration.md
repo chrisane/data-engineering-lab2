@@ -10,8 +10,8 @@ dbt project is assumed or required.
 | `data/incoming`, `data/raw`, `data/quarantine` | Lakehouse **Files** (bronze) | Keep the immutable-RAW and hash discipline; OneLake shortcuts for source drops. |
 | Validation (Python) | Fabric **notebook** (same modules) or a Spark job | `src/validation` is plain Python; run it in a notebook with the registry from the repo. |
 | Load gate, manifest, logs | Lakehouse **Delta tables** (`audit_*`) | Replace CSV logs with Delta tables; the gate logic is unchanged. |
-| `stg` schema | Lakehouse Delta tables (silver) | Loaded by notebook from eligible files. |
-| `dw` + `mart` | Fabric **Warehouse** (T-SQL) | Most procedures port directly; check unsupported features (see below). |
+| `silver` schema | Lakehouse Delta tables (silver) | Loaded by notebook from eligible files. |
+| `gold` + `presentation` | Fabric **Warehouse** (T-SQL) | Most procedures port directly; check unsupported features (see below). |
 | Orchestrator | Fabric **Data Factory pipeline** calling notebooks/procedures, or the Python orchestrator in a notebook | Keep metadata-driven ordering; Data Factory can read the plan from the `meta` tables. |
 | Power BI import model | **Direct Lake** semantic model on the Warehouse/Lakehouse | No refresh copies; the star schema is already Direct Lake friendly. |
 | Git + CI | Fabric Git integration + GitHub Actions | Keep migrations and configuration in the same repo. |
@@ -42,7 +42,7 @@ across two systems, which the requirements explicitly ask to avoid. dbt becomes 
 1. the warehouse moves to Fabric/Spark where stored procedures are less natural; or
 2. the team prefers ELT models over procedural loads.
 
-Migration path if adopted: convert each `dw.usp_Load*` into a dbt incremental model
+Migration path if adopted: convert each `gold.usp_Load*` into a dbt incremental model
 (`unique_key` = business key, `merge` strategy) or a snapshot (SCD2); express reconciliation controls
 as dbt tests (`unique`, `not_null`, `relationships`, custom tests for totals and balances); generate
 `sources.yml` and column descriptions from `config/source_registry.yaml` and

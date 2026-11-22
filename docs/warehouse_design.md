@@ -1,6 +1,6 @@
 # Warehouse design
 
-Dimensional model in the `dw` schema, exposed to reporting through `mart` views. Column-level lineage
+Dimensional model in the `gold` schema, exposed to reporting through `presentation` views. Column-level lineage
 for every table is in [catalogue/mappings_and_lineage.md](catalogue/mappings_and_lineage.md).
 
 ## Star schemas
@@ -46,7 +46,7 @@ erDiagram
 
 Facts of different grains are never joined to each other directly. Analysis across them (for example
 sales against cash-ups, or purchases against receipts) aggregates each fact to a common grain through
-the conformed dimensions, as the mart views do.
+the conformed dimensions, as the presentation views do.
 
 ## Dimensions and SCD strategy
 
@@ -97,7 +97,7 @@ warehouse:
 - **Changed record** (correction): the fact row is updated, the old and new row hashes are logged in
   `audit.FactChangeLog` (`UPDATE`). For SCD2 dimensions a new version is created instead.
 - **Record missing from the extract** (cancellation/reversal at source): flagged
-  `IsDeletedInSource = 1`, logged as `SOFT_DELETE`, excluded from marts, kept for audit.
+  `IsDeletedInSource = 1`, logged as `SOFT_DELETE`, excluded from the presentation views, kept for audit.
 - **Record that reappears**: restored and logged as `RESTORE`.
 - **Accounting reversals** posted as new journals in the ledger are ordinary new facts; journals must
   still balance (`LEDGER_BALANCE` control).
@@ -112,7 +112,7 @@ warehouse:
   with `scripts/generate_staging_ddl.py` for new tables, hand-written `ALTER` for existing ones). The
   integration tests compare the live staging schema with the registry, so drift is caught.
 
-## Business-rule views (mart)
+## Business-rule views (presentation)
 
 | Area | Views |
 |---|---|

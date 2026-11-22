@@ -45,5 +45,24 @@ python scripts/migrate.py baseline --through 14          # record an existing da
 | 023-024 | Presentation star schema and business-rule views. |
 | 025 | Roles and dynamic data masking. |
 | 026 | Retention audit. |
-| 027 | Materialised replenishment plan: `mart.ReplenishmentPlan` table and `mart.usp_BuildReplenishmentPlan` (mapping `MART_REPLENISHMENT_PLAN`); `vw_ReplenishmentPlan` and `vw_SupplierReorderProposal` read the table (same names and columns, ~200 s -> <1 s). |
-| 028 | `stg.BranchCashup.template_version` (nullable): which registered cash-up template each document was read with. |
+| 027 | Materialised replenishment plan: `presentation.ReplenishmentPlan` table and `presentation.usp_BuildReplenishmentPlan` (mapping `PRESENTATION_REPLENISHMENT_PLAN`); `vw_ReplenishmentPlan` and `vw_SupplierReorderProposal` read the table (same names and columns, ~200 s -> <1 s). |
+| 028 | `silver.BranchCashup.template_version` (nullable): which registered cash-up template each document was read with. |
+
+### Baseline reset: medallion schema names (2026-11-22)
+
+Rule 2 was set aside once, deliberately. Migrations 001-028 were edited in place to adopt the medallion
+naming, together with the data reset in [regenerating_data.md](regenerating_data.md):
+
+| Before | After |
+|---|---|
+| schema `stg` | `silver` |
+| schema `dw` | `gold` |
+| schema `mart` | `presentation` |
+| load layers `STAGING` / `WAREHOUSE` / `MART` | `SILVER` / `GOLD` / `PRESENTATION` |
+| mapping codes `STG_*` / `DW_*` / `MART_*` | `SILVER_*` / `GOLD_*` / `PRESENTATION_*` |
+
+Script file names were kept (for example `023_mart_star_schema.sql`); they describe when each script
+was written, not current object names. A database built before the reset reports these scripts as
+`CHANGED`: drop it and rebuild it from the migrations (steps 3-5 of the reset guide). The pull request
+that made this change fails the CI check "Released migrations are never edited" by design. From here on
+rule 2 applies again.

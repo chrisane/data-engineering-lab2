@@ -7,7 +7,7 @@ Rules
   - no destructive statements (DROP TABLE / TRUNCATE / DROP DATABASE /
     DELETE without WHERE) except in approved full-refresh procedures
   - load procedures use SET XACT_ABORT ON and record failures
-  - presentation views (mart) list their columns explicitly
+  - presentation views list their columns explicitly
   - no credentials in SQL
 """
 
@@ -21,8 +21,8 @@ MIGRATIONS = sorted(SQL_DIR.glob("*.sql"))
 
 # Procedures that rebuild a derived table from other warehouse tables.
 APPROVED_FULL_REFRESH = {
-    "dw.usp_BuildFactInventorySnapshot": "DELETE FROM dw.FactInventorySnapshot",
-    "dw.usp_BuildFactAssetDepreciation": "DELETE FROM dw.FactAssetDepreciation",
+    "gold.usp_BuildFactInventorySnapshot": "DELETE FROM gold.FactInventorySnapshot",
+    "gold.usp_BuildFactAssetDepreciation": "DELETE FROM gold.FactAssetDepreciation",
 }
 
 
@@ -68,7 +68,7 @@ def test_no_destructive_statements(path):
         statement = match.group(0).rstrip(";").strip()
         approved = set(APPROVED_FULL_REFRESH.values()) | {
             "DELETE FROM meta.RebateThreshold",
-            "DELETE FROM mart.ReplenishmentPlan",  # rebuilt each run by mart.usp_BuildReplenishmentPlan
+            "DELETE FROM presentation.ReplenishmentPlan",  # rebuilt each run by presentation.usp_BuildReplenishmentPlan
         }
         assert re.sub(r"\s+", " ", statement) in approved, (
             f"{path.name}: unconditional '{statement}' is only allowed in approved full-refresh procedures"
@@ -81,11 +81,11 @@ def test_load_procedures_are_transactional_and_audited(path):
     sql = path.read_text(encoding="utf-8")
 
     for match in re.finditer(
-        r"CREATE\s+OR\s+ALTER\s+PROCEDURE\s+(dw\.usp_(?:Load|Build)\w+)(.*?)\nGO", sql, re.I | re.S
+        r"CREATE\s+OR\s+ALTER\s+PROCEDURE\s+(gold\.usp_(?:Load|Build)\w+)(.*?)\nGO", sql, re.I | re.S
     ):
         name, body = match.group(1), match.group(2)
         assert "SET XACT_ABORT ON" in body, f"{name}: SET XACT_ABORT ON is required"
-        if name not in ("dw.usp_LoadDimDate", "dw.usp_LoadDimSupplier"):
+        if name not in ("gold.usp_LoadDimDate", "gold.usp_LoadDimSupplier"):
             assert "usp_RecordWarehouseFailure" in body, f"{name}: failures must be recorded"
             assert "usp_CompleteWarehouseExecution" in body, f"{name}: outcomes must be recorded"
 
@@ -96,7 +96,7 @@ def test_presentation_views_list_columns(path):
     sql = strip_comments(path.read_text(encoding="utf-8"))
 
     for match in re.finditer(
-        r"CREATE\s+OR\s+ALTER\s+VIEW\s+(mart\.(?:Dim|Fact|Bridge)\w+)\s+AS\s+SELECT\s+\*", sql, re.I
+        r"CREATE\s+OR\s+ALTER\s+VIEW\s+(presentation\.(?:Dim|Fact|Bridge)\w+)\s+AS\s+SELECT\s+\*", sql, re.I
     ):
         pytest.fail(f"{path.name}: {match.group(1)} must list its columns (no SELECT *)")
 

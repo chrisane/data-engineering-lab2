@@ -3,7 +3,7 @@ GO
 SET XACT_ABORT ON;
 GO
 /*
-    023 - Presentation layer (mart schema) for Power BI and analysts.
+    023 - Presentation layer (presentation schema) for Power BI and analysts.
 
     Star-schema views over the warehouse: friendly names, technical and
     lineage columns hidden, soft-deleted rows excluded. Power BI connects
@@ -18,140 +18,140 @@ GO
 -- ---------------------------------------------------------
 -- Dimensions
 -- ---------------------------------------------------------
-CREATE OR ALTER VIEW mart.DimDate AS
+CREATE OR ALTER VIEW presentation.DimDate AS
 SELECT DateKey, [Date], [Year], QuarterNumber, QuarterName, MonthNumber, MonthName, MonthShortName,
        YearMonth, DayOfMonth, DayOfWeekNumber, DayName, IsoWeek, IsWeekend, FiscalYear, FiscalPeriod,
        MonthStartDate, MonthEndDate, IsMonthEnd
-FROM dw.DimDate;
+FROM gold.DimDate;
 GO
 
-CREATE OR ALTER VIEW mart.DimSite AS
+CREATE OR ALTER VIEW presentation.DimSite AS
 SELECT SiteKey, SiteID, SiteName, Town, SiteType, IsBranch, IsDistributionCentre, IsHeadOffice,
        IsDeletedInSource AS IsRetired
-FROM dw.DimSite;
+FROM gold.DimSite;
 GO
 
-CREATE OR ALTER VIEW mart.DimDepartment AS
-SELECT DepartmentKey, DepartmentID, DepartmentName FROM dw.DimDepartment;
+CREATE OR ALTER VIEW presentation.DimDepartment AS
+SELECT DepartmentKey, DepartmentID, DepartmentName FROM gold.DimDepartment;
 GO
 
-CREATE OR ALTER VIEW mart.DimProduct AS
+CREATE OR ALTER VIEW presentation.DimProduct AS
 SELECT ProductKey, ProductID, ProductName, Category, StandardCost, SellingPrice, IsDCStocked, SupplyRoute,
        RevisionNumber, IsCurrent, EffectiveFrom, EffectiveTo, IsDeletedInSource AS IsDiscontinued
-FROM dw.DimProduct;
+FROM gold.DimProduct;
 GO
 
-CREATE OR ALTER VIEW mart.DimCustomer AS
+CREATE OR ALTER VIEW presentation.DimCustomer AS
 SELECT CustomerKey, CustomerID, CustomerName, CustomerType, Town, CreditLimit, HasCreditFacility,
        RevisionNumber, IsCurrent, EffectiveFrom, EffectiveTo
-FROM dw.DimCustomer;
+FROM gold.DimCustomer;
 GO
 
-CREATE OR ALTER VIEW mart.DimSupplier AS
+CREATE OR ALTER VIEW presentation.DimSupplier AS
 SELECT SupplierKey, SupplierID, SupplierName, Location, MinimumOrderValueNAD, RebateRate, PaymentTermsDays,
        RevisionNumber, IsCurrent, EffectiveFrom, EffectiveTo
-FROM dw.DimSupplier;
+FROM gold.DimSupplier;
 GO
 
-CREATE OR ALTER VIEW mart.DimAccount AS
+CREATE OR ALTER VIEW presentation.DimAccount AS
 SELECT AccountKey, AccountCode, AccountName, AccountType, FinancialStatement, NormalBalance, NormalSign,
        StatementSection
-FROM dw.DimAccount;
+FROM gold.DimAccount;
 GO
 
-CREATE OR ALTER VIEW mart.DimPaymentMethod AS
-SELECT PaymentMethodKey, PaymentMethodCode, PaymentMethodName, IsCash, SettlementType FROM dw.DimPaymentMethod;
+CREATE OR ALTER VIEW presentation.DimPaymentMethod AS
+SELECT PaymentMethodKey, PaymentMethodCode, PaymentMethodName, IsCash, SettlementType FROM gold.DimPaymentMethod;
 GO
 
-CREATE OR ALTER VIEW mart.DimAsset AS
+CREATE OR ALTER VIEW presentation.DimAsset AS
 SELECT AssetKey, AssetID, SiteID, AssetClass, AcquisitionDate, AcquisitionCost, UsefulLifeYears,
        MonthlyDepreciation, DepreciationMethod, AssetStatus, FullyDepreciatedDate
-FROM dw.DimAsset WHERE IsDeletedInSource = 0;
+FROM gold.DimAsset WHERE IsDeletedInSource = 0;
 GO
 
-CREATE OR ALTER VIEW mart.DimLocalAsset AS
+CREATE OR ALTER VIEW presentation.DimLocalAsset AS
 SELECT LocalAssetKey, LocalAssetID, SiteID, DepartmentID, AssetDescription, AssetCondition, AssignedTo,
        IsAssigned, RecordedDate
-FROM dw.DimLocalAsset WHERE IsDeletedInSource = 0;
+FROM gold.DimLocalAsset WHERE IsDeletedInSource = 0;
 GO
 
 -- ---------------------------------------------------------
 -- Facts (active rows only)
 -- ---------------------------------------------------------
-CREATE OR ALTER VIEW mart.FactSales AS
+CREATE OR ALTER VIEW presentation.FactSales AS
 SELECT SaleID, SaleDateKey, SiteKey, CustomerKey, PaymentMethodKey, NetAmount, VATAmount, TotalAmount
-FROM dw.FactSales WHERE IsDeletedInSource = 0;
+FROM gold.FactSales WHERE IsDeletedInSource = 0;
 GO
 
-CREATE OR ALTER VIEW mart.FactSalesLine AS
+CREATE OR ALTER VIEW presentation.FactSalesLine AS
 SELECT SaleID, ProductID, SaleDateKey, SiteKey, CustomerKey, ProductKey, PaymentMethodKey, Quantity, UnitPrice,
        LineNetAmount, UnitCost, LineCostAmount, GrossMarginAmount
-FROM dw.FactSalesLine WHERE IsDeletedInSource = 0;
+FROM gold.FactSalesLine WHERE IsDeletedInSource = 0;
 GO
 
-CREATE OR ALTER VIEW mart.FactInventoryMovement AS
+CREATE OR ALTER VIEW presentation.FactInventoryMovement AS
 SELECT MovementID, MovementDateKey, SiteKey, ProductKey, MovementType, Direction, Quantity, UnitCost,
        MovementValue, SourceDocumentID
-FROM dw.FactInventoryMovement WHERE IsDeletedInSource = 0;
+FROM gold.FactInventoryMovement WHERE IsDeletedInSource = 0;
 GO
 
-CREATE OR ALTER VIEW mart.FactInventorySnapshot AS
+CREATE OR ALTER VIEW presentation.FactInventorySnapshot AS
 SELECT SnapshotDateKey, SiteKey, ProductKey, QuantityIn, QuantityOut, ClosingQuantity, ClosingValue
-FROM dw.FactInventorySnapshot;
+FROM gold.FactInventorySnapshot;
 GO
 
-CREATE OR ALTER VIEW mart.FactPurchaseOrder AS
+CREATE OR ALTER VIEW presentation.FactPurchaseOrder AS
 SELECT POID, OrderDateKey, SupplierKey, DeliverySiteKey, POStatus, POValue, SupplierMinimumOrderValue,
        MeetsMinimumOrderValue
-FROM dw.FactPurchaseOrder WHERE IsDeletedInSource = 0;
+FROM gold.FactPurchaseOrder WHERE IsDeletedInSource = 0;
 GO
 
-CREATE OR ALTER VIEW mart.FactPurchaseOrderLine AS
+CREATE OR ALTER VIEW presentation.FactPurchaseOrderLine AS
 SELECT POID, ProductID, OrderDateKey, SupplierKey, ProductKey, DeliverySiteKey, Quantity, UnitCost, LineValue
-FROM dw.FactPurchaseOrderLine WHERE IsDeletedInSource = 0;
+FROM gold.FactPurchaseOrderLine WHERE IsDeletedInSource = 0;
 GO
 
-CREATE OR ALTER VIEW mart.FactGoodsReceipt AS
+CREATE OR ALTER VIEW presentation.FactGoodsReceipt AS
 SELECT GRNID, POID, ReceiptDateKey, OrderDateKey, SupplierKey, SiteKey, LeadTimeDays
-FROM dw.FactGoodsReceipt WHERE IsDeletedInSource = 0;
+FROM gold.FactGoodsReceipt WHERE IsDeletedInSource = 0;
 GO
 
-CREATE OR ALTER VIEW mart.FactSupplierInvoice AS
+CREATE OR ALTER VIEW presentation.FactSupplierInvoice AS
 SELECT InvoiceID, POID, InvoiceDateKey, DueDateKey, SupplierKey, InvoiceStatus, NetAmount, VATAmount, TotalAmount,
        PaymentTermsDays, OrderedValue, InvoiceToOrderVariance
-FROM dw.FactSupplierInvoice WHERE IsDeletedInSource = 0;
+FROM gold.FactSupplierInvoice WHERE IsDeletedInSource = 0;
 GO
 
-CREATE OR ALTER VIEW mart.FactSupplierRebate AS
+CREATE OR ALTER VIEW presentation.FactSupplierRebate AS
 SELECT SupplierID, RebatePeriod, PeriodEndDateKey, SupplierKey, QualifyingSpend, RebateRate, RebateAmount,
        ExpectedRebateRate, ExpectedRebateAmount, RebateVariance
-FROM dw.FactSupplierRebate WHERE IsDeletedInSource = 0;
+FROM gold.FactSupplierRebate WHERE IsDeletedInSource = 0;
 GO
 
-CREATE OR ALTER VIEW mart.FactGeneralLedger AS
+CREATE OR ALTER VIEW presentation.FactGeneralLedger AS
 SELECT JournalID, JournalLineNumber, PostingDateKey, AccountKey, SiteKey, SourceDocumentID, TransactionType,
        DebitAmount, CreditAmount, NetAmount
-FROM dw.FactGeneralLedger WHERE IsDeletedInSource = 0;
+FROM gold.FactGeneralLedger WHERE IsDeletedInSource = 0;
 GO
 
-CREATE OR ALTER VIEW mart.FactOperatingExpense AS
+CREATE OR ALTER VIEW presentation.FactOperatingExpense AS
 SELECT ExpenseID, ExpenseDateKey, SiteKey, AccountKey, ExpenseType, ExpenseDescription, Amount
-FROM dw.FactOperatingExpense WHERE IsDeletedInSource = 0;
+FROM gold.FactOperatingExpense WHERE IsDeletedInSource = 0;
 GO
 
-CREATE OR ALTER VIEW mart.FactAssetDepreciation AS
+CREATE OR ALTER VIEW presentation.FactAssetDepreciation AS
 SELECT AssetKey, PeriodEndDateKey, SiteKey, DepreciationAmount, AccumulatedDepreciation, NetBookValue
-FROM dw.FactAssetDepreciation;
+FROM gold.FactAssetDepreciation;
 GO
 
-CREATE OR ALTER VIEW mart.FactBranchCashup AS
+CREATE OR ALTER VIEW presentation.FactBranchCashup AS
 SELECT ShiftID, BusinessDateKey, SiteKey, PosTerminal, Cashier, OpeningFloat, CashSales, CardSales, AccountSales,
        TotalSales, InternalExpenses, CashRemoved, ExpectedClosingCash, ActualClosingCash, CashVariance,
        CashVarianceStatus, ManagerApproval
-FROM dw.FactBranchCashup WHERE IsDeletedInSource = 0;
+FROM gold.FactBranchCashup WHERE IsDeletedInSource = 0;
 GO
 
-CREATE OR ALTER VIEW mart.BridgeProductSupplier AS
+CREATE OR ALTER VIEW presentation.BridgeProductSupplier AS
 SELECT ProductID, SupplierID, ProductKey, SupplierKey, SupplierUnitCost, IsPreferredSupplier
-FROM dw.BridgeProductSupplier WHERE IsDeletedInSource = 0;
+FROM gold.BridgeProductSupplier WHERE IsDeletedInSource = 0;
 GO

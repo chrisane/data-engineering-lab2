@@ -57,22 +57,22 @@ IF NOT EXISTS (SELECT 1 FROM meta.ExecutionHandler WHERE HandlerCode = 'SUPPLIER
     VALUES ('SUPPLIER_SCD2', 'PYTHON', N'Supplier SCD Type 2 warehouse transformation runner', 1, 1);
 
 IF NOT EXISTS (SELECT 1 FROM meta.SourceTargetMapping
-               WHERE SourceID = @SupplierSourceID AND TargetSchema = 'stg' AND TargetTable = 'Supplier')
+               WHERE SourceID = @SupplierSourceID AND TargetSchema = 'silver' AND TargetTable = 'Supplier')
     INSERT INTO meta.SourceTargetMapping
         (SourceID, TargetSchema, TargetTable, LoadLayer, LoadStrategy, ExecutionOrder, IsEnabled)
-    VALUES (@SupplierSourceID, 'stg', 'Supplier', 'STAGING', 'APPEND', 10, 1);
+    VALUES (@SupplierSourceID, 'silver', 'Supplier', 'SILVER', 'APPEND', 10, 1);
 
 IF NOT EXISTS (SELECT 1 FROM meta.SourceTargetMapping
-               WHERE SourceID = @SupplierSourceID AND TargetSchema = 'dw' AND TargetTable = 'DimSupplier')
+               WHERE SourceID = @SupplierSourceID AND TargetSchema = 'gold' AND TargetTable = 'DimSupplier')
     INSERT INTO meta.SourceTargetMapping
         (SourceID, TargetSchema, TargetTable, LoadLayer, LoadStrategy, ExecutionOrder, IsEnabled)
-    VALUES (@SupplierSourceID, 'dw', 'DimSupplier', 'WAREHOUSE', 'SCD2', 20, 1);
+    VALUES (@SupplierSourceID, 'gold', 'DimSupplier', 'GOLD', 'SCD2', 20, 1);
 
 INSERT INTO meta.MappingExecution (MappingID, HandlerID, StopOnFailure)
 SELECT m.MappingID, h.HandlerID, 1
 FROM meta.SourceTargetMapping AS m
-JOIN (VALUES ('stg', 'Supplier', 'SUPPLIER_STAGING'),
-             ('dw', 'DimSupplier', 'SUPPLIER_SCD2')) AS v(TargetSchema, TargetTable, HandlerCode)
+JOIN (VALUES ('silver', 'Supplier', 'SUPPLIER_STAGING'),
+             ('gold', 'DimSupplier', 'SUPPLIER_SCD2')) AS v(TargetSchema, TargetTable, HandlerCode)
   ON v.TargetSchema = m.TargetSchema AND v.TargetTable = m.TargetTable
 JOIN meta.ExecutionHandler AS h ON h.HandlerCode = v.HandlerCode
 WHERE m.SourceID = @SupplierSourceID

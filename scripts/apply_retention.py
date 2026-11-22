@@ -33,7 +33,7 @@ from db_connection import get_connection  # noqa: E402
 from metadata_sync import load_yaml  # noqa: E402
 
 ARCHIVE_DIR = ROOT / "data" / "archive" / "staging"
-TABLE = re.compile(r"^stg\.[A-Za-z]+$")
+TABLE = re.compile(r"^silver\.[A-Za-z]+$")
 
 
 def retention_candidates(cursor, keep: int) -> list[tuple]:

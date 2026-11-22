@@ -76,7 +76,7 @@ ERP | POS | Excel | CSV | PDF | Email | APIs
         File Hashing & Run Tracking
                   |
                   v
-               RAW ZONE
+             BRONZE (RAW)
         Original Evidence Preserved
                   |
                   v
@@ -91,14 +91,16 @@ ERP | POS | Excel | CSV | PDF | Email | APIs
     TRANSFORMATION     QUARANTINE
           |          Exception Reporting
           v
-        STAGING
+   SILVER (silver schema)
+   Validated Source Data
           |
           v
-      DATA WAREHOUSE
-     Facts & Dimensions
+    GOLD (gold schema)
+   Facts & Dimensions
           |
           v
-       DATA MARTS
+ PRESENTATION (presentation schema)
+   Star Schema & Business Views
           |
           v
      SEMANTIC MODELS
@@ -183,7 +185,7 @@ Planned capabilities include:
 - Star-schema design
 - Historical data management
 - Incremental loading and safe reprocessing
-- Data marts for business reporting
+- Presentation layer (star schema and business-rule views) for business reporting
 
 ### 5.5 Reconciliation and Financial Integrity
 
@@ -229,7 +231,7 @@ data-engineering-lab2/
 |   |-- warehouse/              # migrations, metadata sync, staging loader, handlers,
 |                               # reconciliation, orchestrator
 |-- sql/                        # 001-026 versioned migrations (schemas, staging, warehouse,
-|                               # procedures, marts, monitoring, security, retention)
+|                               # procedures, presentation views, monitoring, security, retention)
 |-- scripts/                    # run_pipeline, migrate, sync_metadata, trace_file,
 |                               # health_check, apply_retention, generate_docs, scheduling
 |-- tests/                      # unit, configuration, SQL standards, integration

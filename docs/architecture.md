@@ -1,8 +1,10 @@
 # Architecture
 
 Retail Data Platform v2 turns fragmented operational files from Nawa Retail Group into a governed,
-reconciled dimensional warehouse and Power BI-ready marts. Everything runs locally on Windows with
-Python and SQL Server 2019; the design maps onto Microsoft Fabric later (see
+reconciled dimensional warehouse and Power BI-ready presentation layer. It follows the medallion
+architecture: **bronze** (raw files as received), **silver** (validated source data), **gold**
+(conformed dimensional warehouse) and a **presentation** layer that reports read. Everything runs
+locally on Windows with Python and SQL Server 2019; the design maps onto Microsoft Fabric later (see
 [fabric_dbt_integration.md](fabric_dbt_integration.md)).
 
 ## End-to-end flow
@@ -16,10 +18,10 @@ flowchart TD
     end
 
     X & P --> I[Ingestion<br/>discover, verify, SHA-256,<br/>duplicate detection]
-    I -->|accepted| RAW[(RAW<br/>immutable evidence)]
+    I -->|accepted| BRONZE[(Bronze: data/raw<br/>immutable evidence)]:::bronze
     I -->|rejected| Q[(Quarantine<br/>+ exception report)]
 
-    RAW --> SV[Structural validation]
+    BRONZE --> SV[Structural validation]
     SV --> DV[Data and business-rule validation<br/>incl. PDF extraction]
     DV -->|ERROR| Q
     DV --> COV[Coverage check<br/>every configured check ran]
@@ -29,32 +31,62 @@ flowchart TD
     R --> ORCH
     META[(meta schema<br/>mappings, handlers,<br/>controls, lineage, catalogue)] --> ORCH
 
-    ORCH --> STG[(stg<br/>staging, full lineage)]
-    STG --> DW[(dw<br/>conformed dimensions,<br/>facts, SCD1/SCD2)]
-    DW --> REC[Reconciliation controls<br/>quality gates]
+    ORCH --> SILVER[(Silver: silver schema<br/>validated source tables,<br/>full lineage)]:::silver
+    SILVER --> GOLD[(Gold: gold schema<br/>conformed dimensions,<br/>facts, SCD1/SCD2)]:::gold
+    GOLD --> REC[Reconciliation controls<br/>quality gates]
     REC -->|CRITICAL/ERROR| STOP[Pipeline stops]
-    DW --> MART[(mart<br/>star schema +<br/>business-rule views)]
-    MART --> PBI[Power BI semantic model]
+    GOLD --> PRES[(Presentation schema<br/>star schema +<br/>business-rule views)]
+    PRES --> PBI[Power BI semantic model]
 
     ORCH -.-> AUD[(audit<br/>executions, errors,<br/>reconciliation, DQ results)]
     AUD --> MON[Monitoring views<br/>health check, alerts]
 
     classDef src fill:#eef,stroke:#88a
+    classDef bronze fill:#f3e3d3,stroke:#a0704a
+    classDef silver fill:#eceff1,stroke:#8a959c
+    classDef gold fill:#fbf1c7,stroke:#b8962e
 ```
 
 ## Layers
 
 | Layer | Where | Purpose |
 |---|---|---|
-| Incoming | `data/incoming/` | Files as delivered (generated synthetic data in this lab). |
-| RAW | `data/raw/<run_id>/` | Byte-for-byte copies; SHA-256 recorded in the ingestion manifest. Never modified. |
+| Incoming (landing) | `data/incoming/` | Files as delivered (generated synthetic data in this lab). |
+| **Bronze** | `data/raw/<run_id>/` | Byte-for-byte copies; SHA-256 recorded in the ingestion manifest. Never modified. |
 | Quarantine | `data/quarantine/<run_id>/` | Copies of rejected or failed files with an `.errors.csv` report. |
 | Validation evidence | `logs/*.csv` | Every check, failure, coverage result and gate decision, with validation IDs. |
-| Staging (`stg`) | SQL | One table per source, columns derived from the source contract; every row carries run ID, file, file hash and source row number. Append-only per file version. |
-| Warehouse (`dw`) | SQL | Conformed dimensions (SCD1/SCD2) and facts at declared grains, with lineage, row hashes and soft deletes. |
-| Marts (`mart`) | SQL views | Presentation star schema for Power BI plus business-rule and exception views. |
-| Metadata (`meta`) | SQL | Catalogue synchronised from configuration: sources, data dictionary, mappings, handlers, dependencies, controls, business rules, lineage, settings, migrations. |
-| Audit (`audit`) | SQL | Pipeline/mapping executions, load and warehouse audits, reconciliation results, actionable errors, validation outcomes, retention actions; monitoring views. |
+| **Silver** | `silver` schema | One table per source, columns derived from the source contract; every row carries run ID, file, file hash and source row number. Append-only per file version. |
+| **Gold** | `gold` schema | Conformed dimensions (SCD1/SCD2) and facts at declared grains, with lineage, row hashes and soft deletes. |
+| **Presentation** | `presentation` schema (views, one table) | Star schema for Power BI plus business-rule and exception views; the only layer reports read. |
+| Metadata | `meta` schema | Catalogue synchronised from configuration: sources, data dictionary, mappings, handlers, dependencies, controls, business rules, lineage, settings, migrations. |
+| Audit | `audit` schema | Pipeline/mapping executions, load and warehouse audits, reconciliation results, actionable errors, validation outcomes, retention actions; monitoring views. |
+
+## Medallion architecture
+
+| Tier | Holds | Promotion into the tier | Load layer and mapping codes |
+|---|---|---|---|
+| **Bronze** | Raw files exactly as received (`data/raw/<run_id>/`), every version kept | Ingestion: format and content verified, SHA-256 recorded, duplicates detected | (files, no SQL layer) |
+| **Silver** | Validated, typed source data, one table per source with source column names | Validation, coverage check and the load-eligibility gate; only eligible file versions load | `SILVER`, `SILVER_<TABLE>` |
+| **Gold** | Conformed dimensions and facts (Kimball star schemas) with history | Load procedures, then reconciliation controls (CRITICAL/ERROR stop the pipeline) | `GOLD`, `GOLD_DIM_*` / `GOLD_FACT_*` |
+| **Presentation** | Report-facing views over gold, business-rule and exception views, the materialised replenishment plan | Views (always current); `presentation.ReplenishmentPlan` rebuilt each run | `PRESENTATION`, `PRESENTATION_*` |
+
+Supporting every tier: **quarantine** (`data/quarantine/`) for bronze files that fail ingestion or
+validation (they never reach silver), **validation evidence** (`logs/*.csv`) recording each promotion
+decision, and the **`meta`** (governance) and **`audit`** (observability) schemas.
+
+Design choices:
+
+1. **Silver is per source; conformance happens in gold.** Silver stays a faithful, validated copy of
+   each source. Combining sources into shared dimensions is business logic, so it lives in one
+   reviewed place: the gold load procedures.
+2. **Presentation is separate from gold.** Gold tables are the integrated warehouse; presentation views
+   hide technical columns and soft-deleted rows and carry the business rules, so gold can change
+   without breaking reports. Power BI and
+   analysts read `presentation` only (see [security.md](security.md)); they never query `silver` or
+   `gold`.
+3. **Bronze is files, not tables,** because the platform runs on a local file system and SQL Server.
+   On Microsoft Fabric bronze becomes Lakehouse Files (see
+   [fabric_dbt_integration.md](fabric_dbt_integration.md)).
 
 ## Components
 

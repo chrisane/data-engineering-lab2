@@ -66,7 +66,7 @@ RETURN
       AND Decision = 'ELIGIBLE';
 GO
 
-CREATE OR ALTER FUNCTION dw.fn_DateKey (@Date DATE)
+CREATE OR ALTER FUNCTION gold.fn_DateKey (@Date DATE)
 RETURNS INT
 WITH SCHEMABINDING
 AS
@@ -194,7 +194,7 @@ GO
 -- =========================================================
 
 -- DimSite (SCD1) --------------------------------------------
-CREATE OR ALTER PROCEDURE dw.usp_LoadDimSite @PipelineExecutionID BIGINT
+CREATE OR ALTER PROCEDURE gold.usp_LoadDimSite @PipelineExecutionID BIGINT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -206,7 +206,7 @@ BEGIN
         EXEC audit.usp_RequireSingleBatch @PipelineExecutionID, N'site_master', @Run OUTPUT, @Hash OUTPUT;
 
         BEGIN TRANSACTION;
-        EXEC audit.usp_AcquireLoadLock N'dw.DimSite';
+        EXEC audit.usp_AcquireLoadLock N'gold.DimSite';
 
         CREATE TABLE #MergeActions (ActionType NVARCHAR(10), BusinessKey NVARCHAR(200), OldRowHash BINARY(32),
                                     NewRowHash BINARY(32), OldDeleted BIT, NewDeleted BIT);
@@ -214,10 +214,10 @@ BEGIN
         SELECT site_id, site_name, town, site_type, SourceRowNumber,
                HASHBYTES('SHA2_256', CONCAT_WS(N'|', site_name, ISNULL(town, N'<NULL>'), site_type)) AS RowHash
         INTO #Source
-        FROM stg.Site WHERE IngestionRunID = @Run AND SourceFileHash = @Hash;
+        FROM silver.Site WHERE IngestionRunID = @Run AND SourceFileHash = @Hash;
         SET @Rows = @@ROWCOUNT;
 
-        MERGE dw.DimSite AS t
+        MERGE gold.DimSite AS t
         USING #Source AS s ON t.SiteID = s.site_id
         WHEN MATCHED AND (t.RowHash <> s.RowHash OR t.IsDeletedInSource = 1) THEN
             UPDATE SET SiteName = s.site_name, Town = s.town, SiteType = s.site_type,
@@ -240,7 +240,7 @@ BEGIN
                deleted.IsDeletedInSource, inserted.IsDeletedInSource
         INTO #MergeActions;
 
-        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'DW_DIM_SITE', N'dw.DimSite',
+        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'GOLD_DIM_SITE', N'gold.DimSite',
              N'site_master', @Run, @Hash, @Rows;
 
         COMMIT TRANSACTION;
@@ -248,14 +248,14 @@ BEGIN
     BEGIN CATCH
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         DECLARE @Error NVARCHAR(4000) = ERROR_MESSAGE();
-        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'DW_DIM_SITE', N'dw.DimSite', N'site_master', @Error;
+        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'GOLD_DIM_SITE', N'gold.DimSite', N'site_master', @Error;
         THROW;
     END CATCH
 END;
 GO
 
 -- DimDepartment (SCD1) --------------------------------------
-CREATE OR ALTER PROCEDURE dw.usp_LoadDimDepartment @PipelineExecutionID BIGINT
+CREATE OR ALTER PROCEDURE gold.usp_LoadDimDepartment @PipelineExecutionID BIGINT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -267,7 +267,7 @@ BEGIN
         EXEC audit.usp_RequireSingleBatch @PipelineExecutionID, N'department_master', @Run OUTPUT, @Hash OUTPUT;
 
         BEGIN TRANSACTION;
-        EXEC audit.usp_AcquireLoadLock N'dw.DimDepartment';
+        EXEC audit.usp_AcquireLoadLock N'gold.DimDepartment';
 
         CREATE TABLE #MergeActions (ActionType NVARCHAR(10), BusinessKey NVARCHAR(200), OldRowHash BINARY(32),
                                     NewRowHash BINARY(32), OldDeleted BIT, NewDeleted BIT);
@@ -275,10 +275,10 @@ BEGIN
         SELECT department_id, department_name, SourceRowNumber,
                HASHBYTES('SHA2_256', department_name) AS RowHash
         INTO #Source
-        FROM stg.Department WHERE IngestionRunID = @Run AND SourceFileHash = @Hash;
+        FROM silver.Department WHERE IngestionRunID = @Run AND SourceFileHash = @Hash;
         SET @Rows = @@ROWCOUNT;
 
-        MERGE dw.DimDepartment AS t
+        MERGE gold.DimDepartment AS t
         USING #Source AS s ON t.DepartmentID = s.department_id
         WHEN MATCHED AND (t.RowHash <> s.RowHash OR t.IsDeletedInSource = 1) THEN
             UPDATE SET DepartmentName = s.department_name, IngestionRunID = @Run, SourceFileHash = @Hash,
@@ -294,7 +294,7 @@ BEGIN
                deleted.IsDeletedInSource, inserted.IsDeletedInSource
         INTO #MergeActions;
 
-        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'DW_DIM_DEPARTMENT', N'dw.DimDepartment',
+        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'GOLD_DIM_DEPARTMENT', N'gold.DimDepartment',
              N'department_master', @Run, @Hash, @Rows;
 
         COMMIT TRANSACTION;
@@ -302,14 +302,14 @@ BEGIN
     BEGIN CATCH
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         DECLARE @Error NVARCHAR(4000) = ERROR_MESSAGE();
-        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'DW_DIM_DEPARTMENT', N'dw.DimDepartment', N'department_master', @Error;
+        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'GOLD_DIM_DEPARTMENT', N'gold.DimDepartment', N'department_master', @Error;
         THROW;
     END CATCH
 END;
 GO
 
 -- DimProduct (SCD2) -----------------------------------------
-CREATE OR ALTER PROCEDURE dw.usp_LoadDimProduct @PipelineExecutionID BIGINT
+CREATE OR ALTER PROCEDURE gold.usp_LoadDimProduct @PipelineExecutionID BIGINT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -321,9 +321,9 @@ BEGIN
         EXEC audit.usp_RequireSingleBatch @PipelineExecutionID, N'product_master', @Run OUTPUT, @Hash OUTPUT;
 
         BEGIN TRANSACTION;
-        EXEC audit.usp_AcquireLoadLock N'dw.DimProduct';
+        EXEC audit.usp_AcquireLoadLock N'gold.DimProduct';
 
-        IF EXISTS (SELECT 1 FROM dw.DimProduct WHERE IsCurrent = 1 AND IngestionRunID > @Run)
+        IF EXISTS (SELECT 1 FROM gold.DimProduct WHERE IsCurrent = 1 AND IngestionRunID > @Run)
             THROW 52101, 'A newer product batch is already in the warehouse; replaying an older batch needs a controlled process.', 1;
 
         CREATE TABLE #MergeActions (ActionType NVARCHAR(10), BusinessKey NVARCHAR(200), OldRowHash BINARY(32),
@@ -337,8 +337,8 @@ BEGIN
                d.ProductKey AS CurrentKey, d.RevisionNumber AS CurrentRevision, d.RowHash AS CurrentHash,
                d.IsDeletedInSource AS CurrentDeleted
         INTO #Changes
-        FROM stg.Product AS s
-        LEFT JOIN dw.DimProduct AS d ON d.ProductID = s.product_id AND d.IsCurrent = 1
+        FROM silver.Product AS s
+        LEFT JOIN gold.DimProduct AS d ON d.ProductID = s.product_id AND d.IsCurrent = 1
         WHERE s.IngestionRunID = @Run AND s.SourceFileHash = @Hash;
         SET @Rows = @@ROWCOUNT;
 
@@ -346,11 +346,11 @@ BEGIN
 
         -- Close versions whose tracked attributes changed.
         UPDATE d SET EffectiveTo = @AsOf, IsCurrent = 0
-        FROM dw.DimProduct AS d
+        FROM gold.DimProduct AS d
         JOIN #Changes AS c ON c.CurrentKey = d.ProductKey
         WHERE c.RowHash <> c.CurrentHash;
 
-        INSERT dw.DimProduct (ProductID, ProductName, Category, StandardCost, SellingPrice, IsDCStocked, SupplyRoute,
+        INSERT gold.DimProduct (ProductID, ProductName, Category, StandardCost, SellingPrice, IsDCStocked, SupplyRoute,
                               EffectiveFrom, EffectiveTo, IsCurrent, RevisionNumber, ChangeType,
                               IngestionRunID, SourceFileHash, SourceRowNumber, RowHash, InsertedPipelineExecutionID)
         OUTPUT IIF(inserted.RevisionNumber = 1, 'INSERT', 'UPDATE'), inserted.ProductID, NULL, inserted.RowHash, NULL, 0
@@ -366,18 +366,18 @@ BEGIN
         -- Unchanged but previously missing from the source: restore.
         UPDATE d SET IsDeletedInSource = 0
         OUTPUT 'UPDATE', inserted.ProductID, deleted.RowHash, inserted.RowHash, 1, 0 INTO #MergeActions
-        FROM dw.DimProduct AS d
+        FROM gold.DimProduct AS d
         JOIN #Changes AS c ON c.CurrentKey = d.ProductKey
         WHERE c.RowHash = c.CurrentHash AND d.IsDeletedInSource = 1;
 
         -- Current products absent from this full extract: flag, keep history.
         UPDATE d SET IsDeletedInSource = 1
         OUTPUT 'UPDATE', inserted.ProductID, deleted.RowHash, inserted.RowHash, 0, 1 INTO #MergeActions
-        FROM dw.DimProduct AS d
+        FROM gold.DimProduct AS d
         WHERE d.IsCurrent = 1 AND d.ProductKey <> -1 AND d.IsDeletedInSource = 0
           AND NOT EXISTS (SELECT 1 FROM #Changes AS c WHERE c.product_id = d.ProductID);
 
-        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'DW_DIM_PRODUCT', N'dw.DimProduct',
+        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'GOLD_DIM_PRODUCT', N'gold.DimProduct',
              N'product_master', @Run, @Hash, @Rows;
 
         COMMIT TRANSACTION;
@@ -385,14 +385,14 @@ BEGIN
     BEGIN CATCH
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         DECLARE @Error NVARCHAR(4000) = ERROR_MESSAGE();
-        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'DW_DIM_PRODUCT', N'dw.DimProduct', N'product_master', @Error;
+        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'GOLD_DIM_PRODUCT', N'gold.DimProduct', N'product_master', @Error;
         THROW;
     END CATCH
 END;
 GO
 
 -- DimCustomer (SCD2) ----------------------------------------
-CREATE OR ALTER PROCEDURE dw.usp_LoadDimCustomer @PipelineExecutionID BIGINT
+CREATE OR ALTER PROCEDURE gold.usp_LoadDimCustomer @PipelineExecutionID BIGINT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -404,9 +404,9 @@ BEGIN
         EXEC audit.usp_RequireSingleBatch @PipelineExecutionID, N'customer_master', @Run OUTPUT, @Hash OUTPUT;
 
         BEGIN TRANSACTION;
-        EXEC audit.usp_AcquireLoadLock N'dw.DimCustomer';
+        EXEC audit.usp_AcquireLoadLock N'gold.DimCustomer';
 
-        IF EXISTS (SELECT 1 FROM dw.DimCustomer WHERE IsCurrent = 1 AND IngestionRunID > @Run)
+        IF EXISTS (SELECT 1 FROM gold.DimCustomer WHERE IsCurrent = 1 AND IngestionRunID > @Run)
             THROW 52102, 'A newer customer batch is already in the warehouse; replaying an older batch needs a controlled process.', 1;
 
         CREATE TABLE #MergeActions (ActionType NVARCHAR(10), BusinessKey NVARCHAR(200), OldRowHash BINARY(32),
@@ -417,19 +417,19 @@ BEGIN
                          ISNULL(CONVERT(NVARCHAR(50), s.credit_limit), N'<NULL>'))) AS RowHash,
                d.CustomerKey AS CurrentKey, d.RevisionNumber AS CurrentRevision, d.RowHash AS CurrentHash
         INTO #Changes
-        FROM stg.Customer AS s
-        LEFT JOIN dw.DimCustomer AS d ON d.CustomerID = s.customer_id AND d.IsCurrent = 1
+        FROM silver.Customer AS s
+        LEFT JOIN gold.DimCustomer AS d ON d.CustomerID = s.customer_id AND d.IsCurrent = 1
         WHERE s.IngestionRunID = @Run AND s.SourceFileHash = @Hash;
         SET @Rows = @@ROWCOUNT;
 
         SET @AsOf = SYSUTCDATETIME();
 
         UPDATE d SET EffectiveTo = @AsOf, IsCurrent = 0
-        FROM dw.DimCustomer AS d
+        FROM gold.DimCustomer AS d
         JOIN #Changes AS c ON c.CurrentKey = d.CustomerKey
         WHERE c.RowHash <> c.CurrentHash;
 
-        INSERT dw.DimCustomer (CustomerID, CustomerName, CustomerType, Town, CreditLimit, HasCreditFacility,
+        INSERT gold.DimCustomer (CustomerID, CustomerName, CustomerType, Town, CreditLimit, HasCreditFacility,
                                EffectiveFrom, EffectiveTo, IsCurrent, RevisionNumber, ChangeType,
                                IngestionRunID, SourceFileHash, SourceRowNumber, RowHash, InsertedPipelineExecutionID)
         OUTPUT IIF(inserted.RevisionNumber = 1, 'INSERT', 'UPDATE'), inserted.CustomerID, NULL, inserted.RowHash, NULL, 0
@@ -443,17 +443,17 @@ BEGIN
 
         UPDATE d SET IsDeletedInSource = 0
         OUTPUT 'UPDATE', inserted.CustomerID, deleted.RowHash, inserted.RowHash, 1, 0 INTO #MergeActions
-        FROM dw.DimCustomer AS d
+        FROM gold.DimCustomer AS d
         JOIN #Changes AS c ON c.CurrentKey = d.CustomerKey
         WHERE c.RowHash = c.CurrentHash AND d.IsDeletedInSource = 1;
 
         UPDATE d SET IsDeletedInSource = 1
         OUTPUT 'UPDATE', inserted.CustomerID, deleted.RowHash, inserted.RowHash, 0, 1 INTO #MergeActions
-        FROM dw.DimCustomer AS d
+        FROM gold.DimCustomer AS d
         WHERE d.IsCurrent = 1 AND d.CustomerKey <> -1 AND d.IsDeletedInSource = 0
           AND NOT EXISTS (SELECT 1 FROM #Changes AS c WHERE c.customer_id = d.CustomerID);
 
-        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'DW_DIM_CUSTOMER', N'dw.DimCustomer',
+        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'GOLD_DIM_CUSTOMER', N'gold.DimCustomer',
              N'customer_master', @Run, @Hash, @Rows;
 
         COMMIT TRANSACTION;
@@ -461,14 +461,14 @@ BEGIN
     BEGIN CATCH
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         DECLARE @Error NVARCHAR(4000) = ERROR_MESSAGE();
-        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'DW_DIM_CUSTOMER', N'dw.DimCustomer', N'customer_master', @Error;
+        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'GOLD_DIM_CUSTOMER', N'gold.DimCustomer', N'customer_master', @Error;
         THROW;
     END CATCH
 END;
 GO
 
 -- DimAsset (SCD1) -------------------------------------------
-CREATE OR ALTER PROCEDURE dw.usp_LoadDimAsset @PipelineExecutionID BIGINT
+CREATE OR ALTER PROCEDURE gold.usp_LoadDimAsset @PipelineExecutionID BIGINT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -480,7 +480,7 @@ BEGIN
         EXEC audit.usp_RequireSingleBatch @PipelineExecutionID, N'fixed_assets_erp', @Run OUTPUT, @Hash OUTPUT;
 
         BEGIN TRANSACTION;
-        EXEC audit.usp_AcquireLoadLock N'dw.DimAsset';
+        EXEC audit.usp_AcquireLoadLock N'gold.DimAsset';
 
         CREATE TABLE #MergeActions (ActionType NVARCHAR(10), BusinessKey NVARCHAR(200), OldRowHash BINARY(32),
                                     NewRowHash BINARY(32), OldDeleted BIT, NewDeleted BIT);
@@ -495,10 +495,10 @@ BEGIN
                          ISNULL(CONVERT(NVARCHAR(50), accumulated_depreciation), N'<NULL>'),
                          ISNULL(CONVERT(NVARCHAR(50), net_book_value), N'<NULL>'), status)) AS RowHash
         INTO #Source
-        FROM stg.FixedAsset WHERE IngestionRunID = @Run AND SourceFileHash = @Hash;
+        FROM silver.FixedAsset WHERE IngestionRunID = @Run AND SourceFileHash = @Hash;
         SET @Rows = @@ROWCOUNT;
 
-        MERGE dw.DimAsset AS t
+        MERGE gold.DimAsset AS t
         USING #Source AS s ON t.AssetID = s.asset_id
         WHEN MATCHED AND (t.RowHash <> s.RowHash OR t.IsDeletedInSource = 1) THEN
             UPDATE SET SiteID = s.site_id, AssetClass = s.asset_class, AcquisitionDate = s.acquisition_date,
@@ -524,7 +524,7 @@ BEGIN
                deleted.IsDeletedInSource, inserted.IsDeletedInSource
         INTO #MergeActions;
 
-        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'DW_DIM_ASSET', N'dw.DimAsset',
+        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'GOLD_DIM_ASSET', N'gold.DimAsset',
              N'fixed_assets_erp', @Run, @Hash, @Rows;
 
         COMMIT TRANSACTION;
@@ -532,14 +532,14 @@ BEGIN
     BEGIN CATCH
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         DECLARE @Error NVARCHAR(4000) = ERROR_MESSAGE();
-        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'DW_DIM_ASSET', N'dw.DimAsset', N'fixed_assets_erp', @Error;
+        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'GOLD_DIM_ASSET', N'gold.DimAsset', N'fixed_assets_erp', @Error;
         THROW;
     END CATCH
 END;
 GO
 
 -- DimLocalAsset (SCD1) --------------------------------------
-CREATE OR ALTER PROCEDURE dw.usp_LoadDimLocalAsset @PipelineExecutionID BIGINT
+CREATE OR ALTER PROCEDURE gold.usp_LoadDimLocalAsset @PipelineExecutionID BIGINT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -551,7 +551,7 @@ BEGIN
         EXEC audit.usp_RequireSingleBatch @PipelineExecutionID, N'branch_local_assets', @Run OUTPUT, @Hash OUTPUT;
 
         BEGIN TRANSACTION;
-        EXEC audit.usp_AcquireLoadLock N'dw.DimLocalAsset';
+        EXEC audit.usp_AcquireLoadLock N'gold.DimLocalAsset';
 
         CREATE TABLE #MergeActions (ActionType NVARCHAR(10), BusinessKey NVARCHAR(200), OldRowHash BINARY(32),
                                     NewRowHash BINARY(32), OldDeleted BIT, NewDeleted BIT);
@@ -562,10 +562,10 @@ BEGIN
                          ISNULL(condition, N'<NULL>'), ISNULL(assigned_to, N'<NULL>'),
                          ISNULL(CONVERT(NVARCHAR(10), recorded_date, 23), N'<NULL>'))) AS RowHash
         INTO #Source
-        FROM stg.BranchLocalAsset WHERE IngestionRunID = @Run AND SourceFileHash = @Hash;
+        FROM silver.BranchLocalAsset WHERE IngestionRunID = @Run AND SourceFileHash = @Hash;
         SET @Rows = @@ROWCOUNT;
 
-        MERGE dw.DimLocalAsset AS t
+        MERGE gold.DimLocalAsset AS t
         USING #Source AS s ON t.LocalAssetID = s.local_asset_id
         WHEN MATCHED AND (t.RowHash <> s.RowHash OR t.IsDeletedInSource = 1) THEN
             UPDATE SET SiteID = s.site_id, DepartmentID = s.department_id, AssetDescription = s.description,
@@ -587,7 +587,7 @@ BEGIN
                deleted.IsDeletedInSource, inserted.IsDeletedInSource
         INTO #MergeActions;
 
-        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'DW_DIM_LOCAL_ASSET', N'dw.DimLocalAsset',
+        EXEC audit.usp_CompleteWarehouseExecution @PipelineExecutionID, 'GOLD_DIM_LOCAL_ASSET', N'gold.DimLocalAsset',
              N'branch_local_assets', @Run, @Hash, @Rows;
 
         COMMIT TRANSACTION;
@@ -595,7 +595,7 @@ BEGIN
     BEGIN CATCH
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         DECLARE @Error NVARCHAR(4000) = ERROR_MESSAGE();
-        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'DW_DIM_LOCAL_ASSET', N'dw.DimLocalAsset', N'branch_local_assets', @Error;
+        EXEC audit.usp_RecordWarehouseFailure @PipelineExecutionID, 'GOLD_DIM_LOCAL_ASSET', N'gold.DimLocalAsset', N'branch_local_assets', @Error;
         THROW;
     END CATCH
 END;

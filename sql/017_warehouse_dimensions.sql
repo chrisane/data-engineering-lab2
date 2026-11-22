@@ -28,9 +28,9 @@ GO
 -- ---------------------------------------------------------
 -- DimDate
 -- ---------------------------------------------------------
-IF OBJECT_ID(N'dw.DimDate', N'U') IS NULL
+IF OBJECT_ID(N'gold.DimDate', N'U') IS NULL
 BEGIN
-    CREATE TABLE dw.DimDate (
+    CREATE TABLE gold.DimDate (
         DateKey INT NOT NULL CONSTRAINT PK_DimDate PRIMARY KEY,
         [Date] DATE NOT NULL CONSTRAINT UQ_DimDate_Date UNIQUE,
         [Year] SMALLINT NOT NULL,
@@ -54,7 +54,7 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER PROCEDURE dw.usp_LoadDimDate
+CREATE OR ALTER PROCEDURE gold.usp_LoadDimDate
     @StartDate DATE = '2020-01-01',
     @EndDate DATE = '2030-12-31'
 AS
@@ -67,8 +67,8 @@ BEGIN
         (SELECT TRY_CONVERT(INT, SettingValue) FROM meta.Setting
          WHERE SettingKey = 'company.financial_year_start_month'), 1);
 
-    IF NOT EXISTS (SELECT 1 FROM dw.DimDate WHERE DateKey = -1)
-        INSERT dw.DimDate VALUES (-1, '1900-01-01', 1900, 1, 'Q1', 1, N'Unknown', 'UNK', '1900-01',
+    IF NOT EXISTS (SELECT 1 FROM gold.DimDate WHERE DateKey = -1)
+        INSERT gold.DimDate VALUES (-1, '1900-01-01', 1900, 1, 'Q1', 1, N'Unknown', 'UNK', '1900-01',
                                   1, 1, N'Unknown', 1, 0, 1900, 1, '1900-01-01', '1900-01-31', 0);
 
     ;WITH Numbers AS (
@@ -78,7 +78,7 @@ BEGIN
     ), Dates AS (
         SELECT DATEADD(DAY, n, @StartDate) AS d FROM Numbers
     )
-    INSERT dw.DimDate
+    INSERT gold.DimDate
     SELECT YEAR(d) * 10000 + MONTH(d) * 100 + DAY(d),
            d,
            YEAR(d),
@@ -99,16 +99,16 @@ BEGIN
            EOMONTH(d),
            IIF(d = EOMONTH(d), 1, 0)
     FROM Dates
-    WHERE NOT EXISTS (SELECT 1 FROM dw.DimDate AS x WHERE x.[Date] = Dates.d);
+    WHERE NOT EXISTS (SELECT 1 FROM gold.DimDate AS x WHERE x.[Date] = Dates.d);
 END;
 GO
 
 -- ---------------------------------------------------------
 -- DimSite (SCD1)
 -- ---------------------------------------------------------
-IF OBJECT_ID(N'dw.DimSite', N'U') IS NULL
+IF OBJECT_ID(N'gold.DimSite', N'U') IS NULL
 BEGIN
-    CREATE TABLE dw.DimSite (
+    CREATE TABLE gold.DimSite (
         SiteKey INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DimSite PRIMARY KEY,
         SiteID NVARCHAR(50) NOT NULL CONSTRAINT UQ_DimSite_SiteID UNIQUE,
         SiteName NVARCHAR(255) NOT NULL,
@@ -133,9 +133,9 @@ GO
 -- ---------------------------------------------------------
 -- DimDepartment (SCD1)
 -- ---------------------------------------------------------
-IF OBJECT_ID(N'dw.DimDepartment', N'U') IS NULL
+IF OBJECT_ID(N'gold.DimDepartment', N'U') IS NULL
 BEGIN
-    CREATE TABLE dw.DimDepartment (
+    CREATE TABLE gold.DimDepartment (
         DepartmentKey INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DimDepartment PRIMARY KEY,
         DepartmentID NVARCHAR(50) NOT NULL CONSTRAINT UQ_DimDepartment_ID UNIQUE,
         DepartmentName NVARCHAR(255) NOT NULL,
@@ -155,9 +155,9 @@ GO
 -- ---------------------------------------------------------
 -- DimAccount (SCD1, from config/chart_of_accounts.csv)
 -- ---------------------------------------------------------
-IF OBJECT_ID(N'dw.DimAccount', N'U') IS NULL
+IF OBJECT_ID(N'gold.DimAccount', N'U') IS NULL
 BEGIN
-    CREATE TABLE dw.DimAccount (
+    CREATE TABLE gold.DimAccount (
         AccountKey INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DimAccount PRIMARY KEY,
         AccountCode NVARCHAR(20) NOT NULL CONSTRAINT UQ_DimAccount_Code UNIQUE,
         AccountName NVARCHAR(255) NOT NULL,
@@ -183,9 +183,9 @@ GO
 -- ---------------------------------------------------------
 -- DimPaymentMethod (static reference data)
 -- ---------------------------------------------------------
-IF OBJECT_ID(N'dw.DimPaymentMethod', N'U') IS NULL
+IF OBJECT_ID(N'gold.DimPaymentMethod', N'U') IS NULL
 BEGIN
-    CREATE TABLE dw.DimPaymentMethod (
+    CREATE TABLE gold.DimPaymentMethod (
         PaymentMethodKey INT NOT NULL CONSTRAINT PK_DimPaymentMethod PRIMARY KEY,
         PaymentMethodCode NVARCHAR(20) NOT NULL CONSTRAINT UQ_DimPaymentMethod_Code UNIQUE,
         PaymentMethodName NVARCHAR(50) NOT NULL,
@@ -196,7 +196,7 @@ BEGIN
 END;
 GO
 
-MERGE dw.DimPaymentMethod AS t
+MERGE gold.DimPaymentMethod AS t
 USING (VALUES
     (-1, N'UNKNOWN', N'Unknown', 0, N'UNKNOWN', N'Unknown'),
     (1, N'CASH', N'Cash', 1, N'IMMEDIATE', N'Cash Sales'),
@@ -211,9 +211,9 @@ GO
 -- ---------------------------------------------------------
 -- DimProduct (SCD2)
 -- ---------------------------------------------------------
-IF OBJECT_ID(N'dw.DimProduct', N'U') IS NULL
+IF OBJECT_ID(N'gold.DimProduct', N'U') IS NULL
 BEGIN
-    CREATE TABLE dw.DimProduct (
+    CREATE TABLE gold.DimProduct (
         ProductKey INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DimProduct PRIMARY KEY,
         ProductID NVARCHAR(50) NOT NULL,
         ProductName NVARCHAR(255) NOT NULL,
@@ -239,16 +239,16 @@ BEGIN
         CONSTRAINT CK_DimProduct_Dates CHECK (EffectiveTo IS NULL OR EffectiveTo > EffectiveFrom),
         CONSTRAINT CK_DimProduct_Current CHECK ((IsCurrent = 1 AND EffectiveTo IS NULL) OR (IsCurrent = 0 AND EffectiveTo IS NOT NULL))
     );
-    CREATE UNIQUE INDEX UX_DimProduct_Current ON dw.DimProduct(ProductID) WHERE IsCurrent = 1;
+    CREATE UNIQUE INDEX UX_DimProduct_Current ON gold.DimProduct(ProductID) WHERE IsCurrent = 1;
 END;
 GO
 
 -- ---------------------------------------------------------
 -- DimCustomer (SCD2)
 -- ---------------------------------------------------------
-IF OBJECT_ID(N'dw.DimCustomer', N'U') IS NULL
+IF OBJECT_ID(N'gold.DimCustomer', N'U') IS NULL
 BEGIN
-    CREATE TABLE dw.DimCustomer (
+    CREATE TABLE gold.DimCustomer (
         CustomerKey INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DimCustomer PRIMARY KEY,
         CustomerID NVARCHAR(50) NOT NULL,
         CustomerName NVARCHAR(255) NOT NULL,     -- RESTRICTED: personal data for retail customers
@@ -273,16 +273,16 @@ BEGIN
         CONSTRAINT CK_DimCustomer_Dates CHECK (EffectiveTo IS NULL OR EffectiveTo > EffectiveFrom),
         CONSTRAINT CK_DimCustomer_Current CHECK ((IsCurrent = 1 AND EffectiveTo IS NULL) OR (IsCurrent = 0 AND EffectiveTo IS NOT NULL))
     );
-    CREATE UNIQUE INDEX UX_DimCustomer_Current ON dw.DimCustomer(CustomerID) WHERE IsCurrent = 1;
+    CREATE UNIQUE INDEX UX_DimCustomer_Current ON gold.DimCustomer(CustomerID) WHERE IsCurrent = 1;
 END;
 GO
 
 -- ---------------------------------------------------------
 -- DimAsset (SCD1, ERP fixed assets)
 -- ---------------------------------------------------------
-IF OBJECT_ID(N'dw.DimAsset', N'U') IS NULL
+IF OBJECT_ID(N'gold.DimAsset', N'U') IS NULL
 BEGIN
-    CREATE TABLE dw.DimAsset (
+    CREATE TABLE gold.DimAsset (
         AssetKey INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DimAsset PRIMARY KEY,
         AssetID NVARCHAR(50) NOT NULL CONSTRAINT UQ_DimAsset_ID UNIQUE,
         SiteID NVARCHAR(50) NOT NULL,
@@ -312,9 +312,9 @@ GO
 -- ---------------------------------------------------------
 -- DimLocalAsset (SCD1, branch / departmental registers)
 -- ---------------------------------------------------------
-IF OBJECT_ID(N'dw.DimLocalAsset', N'U') IS NULL
+IF OBJECT_ID(N'gold.DimLocalAsset', N'U') IS NULL
 BEGIN
-    CREATE TABLE dw.DimLocalAsset (
+    CREATE TABLE gold.DimLocalAsset (
         LocalAssetKey INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DimLocalAsset PRIMARY KEY,
         LocalAssetID NVARCHAR(50) NOT NULL CONSTRAINT UQ_DimLocalAsset_ID UNIQUE,
         SiteID NVARCHAR(50) NOT NULL,
@@ -344,90 +344,90 @@ DECLARE @SystemRun VARCHAR(40) = 'ING-00000000_000000';     -- sorts before ever
 DECLARE @NoHash CHAR(64) = REPLICATE('0', 64);
 DECLARE @Hash BINARY(32) = HASHBYTES('SHA2_256', 'UNKNOWN');
 
-IF NOT EXISTS (SELECT 1 FROM dw.DimSite WHERE SiteKey = -1)
+IF NOT EXISTS (SELECT 1 FROM gold.DimSite WHERE SiteKey = -1)
 BEGIN
-    SET IDENTITY_INSERT dw.DimSite ON;
-    INSERT dw.DimSite (SiteKey, SiteID, SiteName, Town, SiteType, IsBranch, IsDistributionCentre, IsHeadOffice,
+    SET IDENTITY_INSERT gold.DimSite ON;
+    INSERT gold.DimSite (SiteKey, SiteID, SiteName, Town, SiteType, IsBranch, IsDistributionCentre, IsHeadOffice,
                        IngestionRunID, SourceFileHash, SourceRowNumber, RowHash)
     VALUES (-1, N'UNKNOWN', N'Unknown site', NULL, N'UNKNOWN', 0, 0, 0, @SystemRun, @NoHash, 0, @Hash);
-    SET IDENTITY_INSERT dw.DimSite OFF;
+    SET IDENTITY_INSERT gold.DimSite OFF;
 END;
 
-IF NOT EXISTS (SELECT 1 FROM dw.DimDepartment WHERE DepartmentKey = -1)
+IF NOT EXISTS (SELECT 1 FROM gold.DimDepartment WHERE DepartmentKey = -1)
 BEGIN
-    SET IDENTITY_INSERT dw.DimDepartment ON;
-    INSERT dw.DimDepartment (DepartmentKey, DepartmentID, DepartmentName, IngestionRunID, SourceFileHash, SourceRowNumber, RowHash)
+    SET IDENTITY_INSERT gold.DimDepartment ON;
+    INSERT gold.DimDepartment (DepartmentKey, DepartmentID, DepartmentName, IngestionRunID, SourceFileHash, SourceRowNumber, RowHash)
     VALUES (-1, N'UNKNOWN', N'Unknown department', @SystemRun, @NoHash, 0, @Hash);
-    SET IDENTITY_INSERT dw.DimDepartment OFF;
+    SET IDENTITY_INSERT gold.DimDepartment OFF;
 END;
 
-IF NOT EXISTS (SELECT 1 FROM dw.DimAccount WHERE AccountKey = -1)
+IF NOT EXISTS (SELECT 1 FROM gold.DimAccount WHERE AccountKey = -1)
 BEGIN
-    SET IDENTITY_INSERT dw.DimAccount ON;
-    INSERT dw.DimAccount (AccountKey, AccountCode, AccountName, AccountType, FinancialStatement, NormalBalance,
+    SET IDENTITY_INSERT gold.DimAccount ON;
+    INSERT gold.DimAccount (AccountKey, AccountCode, AccountName, AccountType, FinancialStatement, NormalBalance,
                           NormalSign, StatementSection, IngestionRunID, SourceFileHash, SourceRowNumber, RowHash)
     VALUES (-1, N'UNKNOWN', N'Unknown account', N'Unknown', N'Unknown', N'Debit', 1, N'Unknown',
             @SystemRun, @NoHash, 0, @Hash);
-    SET IDENTITY_INSERT dw.DimAccount OFF;
+    SET IDENTITY_INSERT gold.DimAccount OFF;
 END;
 
-IF NOT EXISTS (SELECT 1 FROM dw.DimProduct WHERE ProductKey = -1)
+IF NOT EXISTS (SELECT 1 FROM gold.DimProduct WHERE ProductKey = -1)
 BEGIN
-    SET IDENTITY_INSERT dw.DimProduct ON;
-    INSERT dw.DimProduct (ProductKey, ProductID, ProductName, Category, StandardCost, SellingPrice, IsDCStocked,
+    SET IDENTITY_INSERT gold.DimProduct ON;
+    INSERT gold.DimProduct (ProductKey, ProductID, ProductName, Category, StandardCost, SellingPrice, IsDCStocked,
                           SupplyRoute, EffectiveFrom, EffectiveTo, IsCurrent, RevisionNumber, ChangeType,
                           IngestionRunID, SourceFileHash, SourceRowNumber, RowHash)
     VALUES (-1, N'UNKNOWN', N'Unknown product', N'Unknown', 0, 0, NULL, N'UNKNOWN', '1900-01-01', NULL, 1, 1,
             'SYSTEM', @SystemRun, @NoHash, 0, @Hash);
-    SET IDENTITY_INSERT dw.DimProduct OFF;
+    SET IDENTITY_INSERT gold.DimProduct OFF;
 END;
 
-IF NOT EXISTS (SELECT 1 FROM dw.DimCustomer WHERE CustomerKey = -1)
+IF NOT EXISTS (SELECT 1 FROM gold.DimCustomer WHERE CustomerKey = -1)
 BEGIN
-    SET IDENTITY_INSERT dw.DimCustomer ON;
-    INSERT dw.DimCustomer (CustomerKey, CustomerID, CustomerName, CustomerType, Town, CreditLimit, HasCreditFacility,
+    SET IDENTITY_INSERT gold.DimCustomer ON;
+    INSERT gold.DimCustomer (CustomerKey, CustomerID, CustomerName, CustomerType, Town, CreditLimit, HasCreditFacility,
                            EffectiveFrom, EffectiveTo, IsCurrent, RevisionNumber, ChangeType,
                            IngestionRunID, SourceFileHash, SourceRowNumber, RowHash)
     VALUES (-1, N'UNKNOWN', N'Unknown customer', N'UNKNOWN', NULL, NULL, 0, '1900-01-01', NULL, 1, 1, 'SYSTEM',
             @SystemRun, @NoHash, 0, @Hash);
-    SET IDENTITY_INSERT dw.DimCustomer OFF;
+    SET IDENTITY_INSERT gold.DimCustomer OFF;
 END;
 
-IF NOT EXISTS (SELECT 1 FROM dw.DimAsset WHERE AssetKey = -1)
+IF NOT EXISTS (SELECT 1 FROM gold.DimAsset WHERE AssetKey = -1)
 BEGIN
-    SET IDENTITY_INSERT dw.DimAsset ON;
-    INSERT dw.DimAsset (AssetKey, AssetID, SiteID, AssetClass, AcquisitionDate, AcquisitionCost, UsefulLifeYears,
+    SET IDENTITY_INSERT gold.DimAsset ON;
+    INSERT gold.DimAsset (AssetKey, AssetID, SiteID, AssetClass, AcquisitionDate, AcquisitionCost, UsefulLifeYears,
                         MonthlyDepreciation, DepreciationMethod, AssetStatus, FullyDepreciatedDate,
                         IngestionRunID, SourceFileHash, SourceRowNumber, RowHash)
     VALUES (-1, N'UNKNOWN', N'UNKNOWN', N'Unknown', '1900-01-01', 0, 1, 0, N'UNKNOWN', N'UNKNOWN', '1900-01-01',
             @SystemRun, @NoHash, 0, @Hash);
-    SET IDENTITY_INSERT dw.DimAsset OFF;
+    SET IDENTITY_INSERT gold.DimAsset OFF;
 END;
 
-IF NOT EXISTS (SELECT 1 FROM dw.DimLocalAsset WHERE LocalAssetKey = -1)
+IF NOT EXISTS (SELECT 1 FROM gold.DimLocalAsset WHERE LocalAssetKey = -1)
 BEGIN
-    SET IDENTITY_INSERT dw.DimLocalAsset ON;
-    INSERT dw.DimLocalAsset (LocalAssetKey, LocalAssetID, SiteID, DepartmentID, AssetDescription, AssetCondition,
+    SET IDENTITY_INSERT gold.DimLocalAsset ON;
+    INSERT gold.DimLocalAsset (LocalAssetKey, LocalAssetID, SiteID, DepartmentID, AssetDescription, AssetCondition,
                              AssignedTo, IsAssigned, RecordedDate, IngestionRunID, SourceFileHash, SourceRowNumber, RowHash)
     VALUES (-1, N'UNKNOWN', N'UNKNOWN', N'UNKNOWN', N'Unknown asset', NULL, NULL, 0, NULL,
             @SystemRun, @NoHash, 0, @Hash);
-    SET IDENTITY_INSERT dw.DimLocalAsset OFF;
+    SET IDENTITY_INSERT gold.DimLocalAsset OFF;
 END;
 
 -- Supplier (existing SCD2 table, 008): add the Unknown member so facts can
 -- always resolve a supplier key. The system batch ID sorts before every
 -- real batch, so the supplier load's replay protection is unaffected.
-IF NOT EXISTS (SELECT 1 FROM dw.DimSupplier WHERE SupplierKey = -1)
+IF NOT EXISTS (SELECT 1 FROM gold.DimSupplier WHERE SupplierKey = -1)
 BEGIN
-    SET IDENTITY_INSERT dw.DimSupplier ON;
-    INSERT dw.DimSupplier (SupplierKey, SupplierID, SupplierName, Location, MinimumOrderValueNAD, RebateRate,
+    SET IDENTITY_INSERT gold.DimSupplier ON;
+    INSERT gold.DimSupplier (SupplierKey, SupplierID, SupplierName, Location, MinimumOrderValueNAD, RebateRate,
                            PaymentTermsDays, EffectiveFrom, EffectiveTo, IsCurrent, RevisionNumber, ChangeType,
                            ChangeReason, IngestionRunID, SourceFile, SourceFileHash, SourceRowNumber)
     VALUES (-1, 'UNKNOWN', N'Unknown supplier', NULL, 0, NULL, NULL, '1900-01-01', NULL, 1, 1, 'INITIAL',
             N'System unknown member', @SystemRun, N'SYSTEM', @NoHash, 0);
-    SET IDENTITY_INSERT dw.DimSupplier OFF;
+    SET IDENTITY_INSERT gold.DimSupplier OFF;
 END;
 GO
 
-EXEC dw.usp_LoadDimDate;
+EXEC gold.usp_LoadDimDate;
 GO

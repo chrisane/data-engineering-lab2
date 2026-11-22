@@ -6,52 +6,52 @@ Each mapping is executed by one approved handler (src/warehouse/handlers.py) in 
 
 | Mapping | Source | Target | Layer | Strategy | Handler | Order | Depends on |
 |---|---|---|---|---|---|---|---|
-| STG_SITE | site_master | stg.Site | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_DEPARTMENT | department_master | stg.Department | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_PRODUCT | product_master | stg.Product | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_SUPPLIER | supplier_master | stg.Supplier | STAGING | APPEND | SUPPLIER_STAGING | 10 |  |
-| STG_PRODUCT_SUPPLIER | product_supplier | stg.ProductSupplier | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_CUSTOMER | customer_master | stg.Customer | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_PURCHASE_ORDER | purchase_orders | stg.PurchaseOrder | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_PURCHASE_ORDER_LINE | purchase_order_lines | stg.PurchaseOrderLine | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_GOODS_RECEIPT | goods_receipts | stg.GoodsReceipt | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_SUPPLIER_INVOICE | supplier_invoices | stg.SupplierInvoice | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_SUPPLIER_REBATE | supplier_rebates | stg.SupplierRebate | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_SALES_TRANSACTION | sales_transactions | stg.SalesTransaction | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_SALES_LINE | sales_lines | stg.SalesLine | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_INVENTORY_MOVEMENT | inventory_movements | stg.InventoryMovement | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_OPERATING_EXPENSE | operating_expenses | stg.OperatingExpense | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_GENERAL_LEDGER | general_ledger | stg.GeneralLedger | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_FIXED_ASSET | fixed_assets_erp | stg.FixedAsset | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_BRANCH_LOCAL_ASSET | branch_local_assets | stg.BranchLocalAsset | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_BRANCH_CASHUP | branch_cashup | stg.BranchCashup | STAGING | APPEND | GENERIC_STAGING | 10 |  |
-| STG_CHART_OF_ACCOUNTS | chart_of_accounts | stg.ChartOfAccounts | STAGING | APPEND | REFERENCE_ACCOUNTS | 10 |  |
-| DW_DIM_DATE | calendar | dw.DimDate | WAREHOUSE | FULL_REFRESH | DIM_DATE | 20 |  |
-| DW_DIM_SITE | site_master | dw.DimSite | WAREHOUSE | SCD1 | DIM_SITE | 30 | STG_SITE |
-| DW_DIM_DEPARTMENT | department_master | dw.DimDepartment | WAREHOUSE | SCD1 | DIM_DEPARTMENT | 30 | STG_DEPARTMENT |
-| DW_DIM_PRODUCT | product_master | dw.DimProduct | WAREHOUSE | SCD2 | DIM_PRODUCT | 30 | STG_PRODUCT |
-| DW_DIM_CUSTOMER | customer_master | dw.DimCustomer | WAREHOUSE | SCD2 | DIM_CUSTOMER | 30 | STG_CUSTOMER |
-| DW_DIM_SUPPLIER | supplier_master | dw.DimSupplier | WAREHOUSE | SCD2 | SUPPLIER_SCD2 | 30 | STG_SUPPLIER |
-| DW_DIM_ACCOUNT | chart_of_accounts | dw.DimAccount | WAREHOUSE | SCD1 | DIM_ACCOUNT | 30 | STG_CHART_OF_ACCOUNTS |
-| DW_DIM_ASSET | fixed_assets_erp | dw.DimAsset | WAREHOUSE | SCD1 | DIM_ASSET | 30 | STG_FIXED_ASSET |
-| DW_DIM_LOCAL_ASSET | branch_local_assets | dw.DimLocalAsset | WAREHOUSE | SCD1 | DIM_LOCAL_ASSET | 30 | STG_BRANCH_LOCAL_ASSET |
-| DW_BRIDGE_PRODUCT_SUPPLIER | product_supplier | dw.BridgeProductSupplier | WAREHOUSE | SCD1 | BRIDGE_PRODUCT_SUPPLIER | 40 | STG_PRODUCT_SUPPLIER, DW_DIM_PRODUCT, DW_DIM_SUPPLIER |
-| DW_FACT_SALES | sales_transactions | dw.FactSales | WAREHOUSE | UPSERT | FACT_SALES | 50 | STG_SALES_TRANSACTION, DW_DIM_DATE, DW_DIM_SITE, DW_DIM_CUSTOMER |
-| DW_FACT_SALES_LINE | sales_lines | dw.FactSalesLine | WAREHOUSE | UPSERT | FACT_SALES_LINE | 50 | STG_SALES_LINE, STG_SALES_TRANSACTION, DW_DIM_DATE, DW_DIM_SITE, DW_DIM_CUSTOMER, DW_DIM_PRODUCT |
-| DW_FACT_INVENTORY_MOVEMENT | inventory_movements | dw.FactInventoryMovement | WAREHOUSE | UPSERT | FACT_INVENTORY_MOVEMENT | 50 | STG_INVENTORY_MOVEMENT, DW_DIM_DATE, DW_DIM_SITE, DW_DIM_PRODUCT |
-| DW_FACT_INVENTORY_SNAPSHOT | inventory_movements | dw.FactInventorySnapshot | WAREHOUSE | FULL_REFRESH | FACT_INVENTORY_SNAPSHOT | 60 | DW_FACT_INVENTORY_MOVEMENT |
-| DW_FACT_PURCHASE_ORDER | purchase_orders | dw.FactPurchaseOrder | WAREHOUSE | UPSERT | FACT_PURCHASE_ORDER | 50 | STG_PURCHASE_ORDER, DW_DIM_DATE, DW_DIM_SITE, DW_DIM_SUPPLIER |
-| DW_FACT_PURCHASE_ORDER_LINE | purchase_order_lines | dw.FactPurchaseOrderLine | WAREHOUSE | UPSERT | FACT_PURCHASE_ORDER_LINE | 50 | STG_PURCHASE_ORDER_LINE, STG_PURCHASE_ORDER, DW_DIM_DATE, DW_DIM_SITE, DW_DIM_SUPPLIER, DW_DIM_PRODUCT |
-| DW_FACT_GOODS_RECEIPT | goods_receipts | dw.FactGoodsReceipt | WAREHOUSE | UPSERT | FACT_GOODS_RECEIPT | 50 | STG_GOODS_RECEIPT, STG_PURCHASE_ORDER, DW_DIM_DATE, DW_DIM_SITE, DW_DIM_SUPPLIER |
-| DW_FACT_SUPPLIER_INVOICE | supplier_invoices | dw.FactSupplierInvoice | WAREHOUSE | UPSERT | FACT_SUPPLIER_INVOICE | 50 | STG_SUPPLIER_INVOICE, STG_PURCHASE_ORDER, DW_DIM_DATE, DW_DIM_SUPPLIER |
-| DW_FACT_SUPPLIER_REBATE | supplier_rebates | dw.FactSupplierRebate | WAREHOUSE | UPSERT | FACT_SUPPLIER_REBATE | 50 | STG_SUPPLIER_REBATE, DW_DIM_DATE, DW_DIM_SUPPLIER |
-| DW_FACT_GENERAL_LEDGER | general_ledger | dw.FactGeneralLedger | WAREHOUSE | UPSERT | FACT_GENERAL_LEDGER | 50 | STG_GENERAL_LEDGER, DW_DIM_DATE, DW_DIM_SITE, DW_DIM_ACCOUNT |
-| DW_FACT_OPERATING_EXPENSE | operating_expenses | dw.FactOperatingExpense | WAREHOUSE | UPSERT | FACT_OPERATING_EXPENSE | 50 | STG_OPERATING_EXPENSE, DW_DIM_DATE, DW_DIM_SITE, DW_DIM_ACCOUNT |
-| DW_FACT_ASSET_DEPRECIATION | fixed_assets_erp | dw.FactAssetDepreciation | WAREHOUSE | FULL_REFRESH | FACT_ASSET_DEPRECIATION | 60 | DW_DIM_ASSET, DW_DIM_SITE, DW_DIM_DATE |
-| DW_FACT_BRANCH_CASHUP | branch_cashup | dw.FactBranchCashup | WAREHOUSE | UPSERT | FACT_BRANCH_CASHUP | 50 | STG_BRANCH_CASHUP, DW_DIM_DATE, DW_DIM_SITE |
-| MART_REPLENISHMENT_PLAN | inventory_movements | mart.ReplenishmentPlan | MART | FULL_REFRESH | MART_REPLENISHMENT_PLAN | 70 | DW_FACT_INVENTORY_MOVEMENT, DW_FACT_PURCHASE_ORDER_LINE, DW_FACT_GOODS_RECEIPT, DW_DIM_PRODUCT, DW_DIM_SITE |
+| SILVER_SITE | site_master | silver.Site | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_DEPARTMENT | department_master | silver.Department | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_PRODUCT | product_master | silver.Product | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_SUPPLIER | supplier_master | silver.Supplier | SILVER | APPEND | SUPPLIER_STAGING | 10 |  |
+| SILVER_PRODUCT_SUPPLIER | product_supplier | silver.ProductSupplier | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_CUSTOMER | customer_master | silver.Customer | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_PURCHASE_ORDER | purchase_orders | silver.PurchaseOrder | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_PURCHASE_ORDER_LINE | purchase_order_lines | silver.PurchaseOrderLine | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_GOODS_RECEIPT | goods_receipts | silver.GoodsReceipt | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_SUPPLIER_INVOICE | supplier_invoices | silver.SupplierInvoice | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_SUPPLIER_REBATE | supplier_rebates | silver.SupplierRebate | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_SALES_TRANSACTION | sales_transactions | silver.SalesTransaction | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_SALES_LINE | sales_lines | silver.SalesLine | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_INVENTORY_MOVEMENT | inventory_movements | silver.InventoryMovement | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_OPERATING_EXPENSE | operating_expenses | silver.OperatingExpense | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_GENERAL_LEDGER | general_ledger | silver.GeneralLedger | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_FIXED_ASSET | fixed_assets_erp | silver.FixedAsset | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_BRANCH_LOCAL_ASSET | branch_local_assets | silver.BranchLocalAsset | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_BRANCH_CASHUP | branch_cashup | silver.BranchCashup | SILVER | APPEND | GENERIC_STAGING | 10 |  |
+| SILVER_CHART_OF_ACCOUNTS | chart_of_accounts | silver.ChartOfAccounts | SILVER | APPEND | REFERENCE_ACCOUNTS | 10 |  |
+| GOLD_DIM_DATE | calendar | gold.DimDate | GOLD | FULL_REFRESH | DIM_DATE | 20 |  |
+| GOLD_DIM_SITE | site_master | gold.DimSite | GOLD | SCD1 | DIM_SITE | 30 | SILVER_SITE |
+| GOLD_DIM_DEPARTMENT | department_master | gold.DimDepartment | GOLD | SCD1 | DIM_DEPARTMENT | 30 | SILVER_DEPARTMENT |
+| GOLD_DIM_PRODUCT | product_master | gold.DimProduct | GOLD | SCD2 | DIM_PRODUCT | 30 | SILVER_PRODUCT |
+| GOLD_DIM_CUSTOMER | customer_master | gold.DimCustomer | GOLD | SCD2 | DIM_CUSTOMER | 30 | SILVER_CUSTOMER |
+| GOLD_DIM_SUPPLIER | supplier_master | gold.DimSupplier | GOLD | SCD2 | SUPPLIER_SCD2 | 30 | SILVER_SUPPLIER |
+| GOLD_DIM_ACCOUNT | chart_of_accounts | gold.DimAccount | GOLD | SCD1 | DIM_ACCOUNT | 30 | SILVER_CHART_OF_ACCOUNTS |
+| GOLD_DIM_ASSET | fixed_assets_erp | gold.DimAsset | GOLD | SCD1 | DIM_ASSET | 30 | SILVER_FIXED_ASSET |
+| GOLD_DIM_LOCAL_ASSET | branch_local_assets | gold.DimLocalAsset | GOLD | SCD1 | DIM_LOCAL_ASSET | 30 | SILVER_BRANCH_LOCAL_ASSET |
+| GOLD_BRIDGE_PRODUCT_SUPPLIER | product_supplier | gold.BridgeProductSupplier | GOLD | SCD1 | BRIDGE_PRODUCT_SUPPLIER | 40 | SILVER_PRODUCT_SUPPLIER, GOLD_DIM_PRODUCT, GOLD_DIM_SUPPLIER |
+| GOLD_FACT_SALES | sales_transactions | gold.FactSales | GOLD | UPSERT | FACT_SALES | 50 | SILVER_SALES_TRANSACTION, GOLD_DIM_DATE, GOLD_DIM_SITE, GOLD_DIM_CUSTOMER |
+| GOLD_FACT_SALES_LINE | sales_lines | gold.FactSalesLine | GOLD | UPSERT | FACT_SALES_LINE | 50 | SILVER_SALES_LINE, SILVER_SALES_TRANSACTION, GOLD_DIM_DATE, GOLD_DIM_SITE, GOLD_DIM_CUSTOMER, GOLD_DIM_PRODUCT |
+| GOLD_FACT_INVENTORY_MOVEMENT | inventory_movements | gold.FactInventoryMovement | GOLD | UPSERT | FACT_INVENTORY_MOVEMENT | 50 | SILVER_INVENTORY_MOVEMENT, GOLD_DIM_DATE, GOLD_DIM_SITE, GOLD_DIM_PRODUCT |
+| GOLD_FACT_INVENTORY_SNAPSHOT | inventory_movements | gold.FactInventorySnapshot | GOLD | FULL_REFRESH | FACT_INVENTORY_SNAPSHOT | 60 | GOLD_FACT_INVENTORY_MOVEMENT |
+| GOLD_FACT_PURCHASE_ORDER | purchase_orders | gold.FactPurchaseOrder | GOLD | UPSERT | FACT_PURCHASE_ORDER | 50 | SILVER_PURCHASE_ORDER, GOLD_DIM_DATE, GOLD_DIM_SITE, GOLD_DIM_SUPPLIER |
+| GOLD_FACT_PURCHASE_ORDER_LINE | purchase_order_lines | gold.FactPurchaseOrderLine | GOLD | UPSERT | FACT_PURCHASE_ORDER_LINE | 50 | SILVER_PURCHASE_ORDER_LINE, SILVER_PURCHASE_ORDER, GOLD_DIM_DATE, GOLD_DIM_SITE, GOLD_DIM_SUPPLIER, GOLD_DIM_PRODUCT |
+| GOLD_FACT_GOODS_RECEIPT | goods_receipts | gold.FactGoodsReceipt | GOLD | UPSERT | FACT_GOODS_RECEIPT | 50 | SILVER_GOODS_RECEIPT, SILVER_PURCHASE_ORDER, GOLD_DIM_DATE, GOLD_DIM_SITE, GOLD_DIM_SUPPLIER |
+| GOLD_FACT_SUPPLIER_INVOICE | supplier_invoices | gold.FactSupplierInvoice | GOLD | UPSERT | FACT_SUPPLIER_INVOICE | 50 | SILVER_SUPPLIER_INVOICE, SILVER_PURCHASE_ORDER, GOLD_DIM_DATE, GOLD_DIM_SUPPLIER |
+| GOLD_FACT_SUPPLIER_REBATE | supplier_rebates | gold.FactSupplierRebate | GOLD | UPSERT | FACT_SUPPLIER_REBATE | 50 | SILVER_SUPPLIER_REBATE, GOLD_DIM_DATE, GOLD_DIM_SUPPLIER |
+| GOLD_FACT_GENERAL_LEDGER | general_ledger | gold.FactGeneralLedger | GOLD | UPSERT | FACT_GENERAL_LEDGER | 50 | SILVER_GENERAL_LEDGER, GOLD_DIM_DATE, GOLD_DIM_SITE, GOLD_DIM_ACCOUNT |
+| GOLD_FACT_OPERATING_EXPENSE | operating_expenses | gold.FactOperatingExpense | GOLD | UPSERT | FACT_OPERATING_EXPENSE | 50 | SILVER_OPERATING_EXPENSE, GOLD_DIM_DATE, GOLD_DIM_SITE, GOLD_DIM_ACCOUNT |
+| GOLD_FACT_ASSET_DEPRECIATION | fixed_assets_erp | gold.FactAssetDepreciation | GOLD | FULL_REFRESH | FACT_ASSET_DEPRECIATION | 60 | GOLD_DIM_ASSET, GOLD_DIM_SITE, GOLD_DIM_DATE |
+| GOLD_FACT_BRANCH_CASHUP | branch_cashup | gold.FactBranchCashup | GOLD | UPSERT | FACT_BRANCH_CASHUP | 50 | SILVER_BRANCH_CASHUP, GOLD_DIM_DATE, GOLD_DIM_SITE |
+| PRESENTATION_REPLENISHMENT_PLAN | inventory_movements | presentation.ReplenishmentPlan | PRESENTATION | FULL_REFRESH | PRESENTATION_REPLENISHMENT_PLAN | 70 | GOLD_FACT_INVENTORY_MOVEMENT, GOLD_FACT_PURCHASE_ORDER_LINE, GOLD_FACT_GOODS_RECEIPT, GOLD_DIM_PRODUCT, GOLD_DIM_SITE |
 
-## dw.DimDate
+## gold.DimDate
 
 Source: calendar via calendar
 
@@ -77,9 +77,9 @@ Source: calendar via calendar
 | MonthEndDate |  | EOMONTH(Date) |
 | IsMonthEnd |  | Date = MonthEndDate |
 
-## dw.DimSite
+## gold.DimSite
 
-Source: site_master via stg.Site
+Source: site_master via silver.Site
 
 | Column | From | Transformation |
 |---|---|---|
@@ -92,9 +92,9 @@ Source: site_master via stg.Site
 | IsDistributionCentre | site_type | site_type = DISTRIBUTION_CENTRE |
 | IsHeadOffice | site_type | site_type = HEAD_OFFICE |
 
-## dw.DimDepartment
+## gold.DimDepartment
 
-Source: department_master via stg.Department
+Source: department_master via silver.Department
 
 | Column | From | Transformation |
 |---|---|---|
@@ -102,9 +102,9 @@ Source: department_master via stg.Department
 | DepartmentID | department_id | Business key |
 | DepartmentName | department_name | Copied |
 
-## dw.DimProduct
+## gold.DimProduct
 
-Source: product_master via stg.Product
+Source: product_master via silver.Product
 
 | Column | From | Transformation |
 |---|---|---|
@@ -117,9 +117,9 @@ Source: product_master via stg.Product
 | IsDCStocked | dc_stocked | Copied |
 | SupplyRoute | dc_stocked | DC_REPLENISHED when dc_stocked else DIRECT_FROM_SUPPLIER |
 
-## dw.DimCustomer
+## gold.DimCustomer
 
-Source: customer_master via stg.Customer
+Source: customer_master via silver.Customer
 
 | Column | From | Transformation |
 |---|---|---|
@@ -131,9 +131,9 @@ Source: customer_master via stg.Customer
 | CreditLimit | credit_limit | Copied; change creates a new version |
 | HasCreditFacility | credit_limit | credit_limit > 0 |
 
-## dw.DimSupplier
+## gold.DimSupplier
 
-Source: supplier_master via stg.Supplier
+Source: supplier_master via silver.Supplier
 
 | Column | From | Transformation |
 |---|---|---|
@@ -146,9 +146,9 @@ Source: supplier_master via stg.Supplier
 | PaymentTermsDays | payment_terms_days | Copied; change creates a new version |
 | ChangeReason |  | Reason recorded for the version |
 
-## dw.DimAccount
+## gold.DimAccount
 
-Source: chart_of_accounts via stg.ChartOfAccounts
+Source: chart_of_accounts via silver.ChartOfAccounts
 
 | Column | From | Transformation |
 |---|---|---|
@@ -161,9 +161,9 @@ Source: chart_of_accounts via stg.ChartOfAccounts
 | NormalSign | normal_balance | +1 Debit, -1 Credit |
 | StatementSection | account_type | Assets / Liabilities / Equity / Revenue / Expenses from account_type |
 
-## dw.DimAsset
+## gold.DimAsset
 
-Source: fixed_assets_erp via stg.FixedAsset
+Source: fixed_assets_erp via silver.FixedAsset
 
 | Column | From | Transformation |
 |---|---|---|
@@ -181,9 +181,9 @@ Source: fixed_assets_erp via stg.FixedAsset
 | AssetStatus | status | Copied |
 | FullyDepreciatedDate | acquisition_date, useful_life_years | EOMONTH(acquisition_date + useful life) |
 
-## dw.DimLocalAsset
+## gold.DimLocalAsset
 
-Source: branch_local_assets via stg.BranchLocalAsset
+Source: branch_local_assets via silver.BranchLocalAsset
 
 | Column | From | Transformation |
 |---|---|---|
@@ -197,9 +197,9 @@ Source: branch_local_assets via stg.BranchLocalAsset
 | IsAssigned | assigned_to | assigned_to is not blank |
 | RecordedDate | recorded_date | Copied |
 
-## dw.BridgeProductSupplier
+## gold.BridgeProductSupplier
 
-Source: product_supplier via stg.ProductSupplier
+Source: product_supplier via silver.ProductSupplier
 
 | Column | From | Transformation |
 |---|---|---|
@@ -211,9 +211,9 @@ Source: product_supplier via stg.ProductSupplier
 | SupplierUnitCost | supplier_unit_cost | Copied |
 | IsPreferredSupplier | supplier_unit_cost | Lowest agreed unit cost for the product (ties by supplier ID) |
 
-## dw.FactSales
+## gold.FactSales
 
-Source: sales_transactions via stg.SalesTransaction
+Source: sales_transactions via silver.SalesTransaction
 
 | Column | From | Transformation |
 |---|---|---|
@@ -227,9 +227,9 @@ Source: sales_transactions via stg.SalesTransaction
 | VATAmount | vat_amount | Copied |
 | TotalAmount | total_amount | Copied |
 
-## dw.FactSalesLine
+## gold.FactSalesLine
 
-Source: sales_lines via stg.SalesLine
+Source: sales_lines via silver.SalesLine
 
 | Column | From | Transformation |
 |---|---|---|
@@ -248,9 +248,9 @@ Source: sales_lines via stg.SalesLine
 | LineCostAmount | quantity, unit_cost | ROUND(quantity x unit_cost |
 | GrossMarginAmount | line_net, quantity, unit_cost | LineNetAmount - LineCostAmount |
 
-## dw.FactInventoryMovement
+## gold.FactInventoryMovement
 
-Source: inventory_movements via stg.InventoryMovement
+Source: inventory_movements via silver.InventoryMovement
 
 | Column | From | Transformation |
 |---|---|---|
@@ -266,23 +266,23 @@ Source: inventory_movements via stg.InventoryMovement
 | MovementValue | quantity, unit_cost | ROUND(quantity x unit_cost |
 | SourceDocumentID | source_document_id | Copied |
 
-## dw.FactInventorySnapshot
+## gold.FactInventorySnapshot
 
-Source: inventory_movements via stg.InventoryMovement
+Source: inventory_movements via silver.InventoryMovement
 
 | Column | From | Transformation |
 |---|---|---|
-| SnapshotDateKey | dw.FactInventoryMovement | Month end |
-| SiteKey | dw.FactInventoryMovement | Copied |
-| ProductKey | dw.FactInventoryMovement | Copied |
-| QuantityIn | dw.FactInventoryMovement.Quantity | Sum of positive quantities in the month |
-| QuantityOut | dw.FactInventoryMovement.Quantity | Sum of negative quantities in the month (as positive) |
-| ClosingQuantity | dw.FactInventoryMovement.Quantity | Running sum of all movements to month end |
-| ClosingValue | dw.DimProduct.StandardCost | ClosingQuantity x current standard cost |
+| SnapshotDateKey | gold.FactInventoryMovement | Month end |
+| SiteKey | gold.FactInventoryMovement | Copied |
+| ProductKey | gold.FactInventoryMovement | Copied |
+| QuantityIn | gold.FactInventoryMovement.Quantity | Sum of positive quantities in the month |
+| QuantityOut | gold.FactInventoryMovement.Quantity | Sum of negative quantities in the month (as positive) |
+| ClosingQuantity | gold.FactInventoryMovement.Quantity | Running sum of all movements to month end |
+| ClosingValue | gold.DimProduct.StandardCost | ClosingQuantity x current standard cost |
 
-## dw.FactPurchaseOrder
+## gold.FactPurchaseOrder
 
-Source: purchase_orders via stg.PurchaseOrder
+Source: purchase_orders via silver.PurchaseOrder
 
 | Column | From | Transformation |
 |---|---|---|
@@ -293,12 +293,12 @@ Source: purchase_orders via stg.PurchaseOrder
 | DeliverySiteKey | delivery_site_id | DimSite lookup |
 | POStatus | status | Copied |
 | POValue | po_value | Copied |
-| SupplierMinimumOrderValue | dw.DimSupplier.MinimumOrderValueNAD | Supplier's current minimum order value (NAD) |
+| SupplierMinimumOrderValue | gold.DimSupplier.MinimumOrderValueNAD | Supplier's current minimum order value (NAD) |
 | MeetsMinimumOrderValue | po_value, MinimumOrderValueNAD | po_value >= minimum order value |
 
-## dw.FactPurchaseOrderLine
+## gold.FactPurchaseOrderLine
 
-Source: purchase_order_lines via stg.PurchaseOrderLine
+Source: purchase_order_lines via silver.PurchaseOrderLine
 
 | Column | From | Transformation |
 |---|---|---|
@@ -313,9 +313,9 @@ Source: purchase_order_lines via stg.PurchaseOrderLine
 | UnitCost | unit_cost | Copied |
 | LineValue | line_value | Copied |
 
-## dw.FactGoodsReceipt
+## gold.FactGoodsReceipt
 
-Source: goods_receipts via stg.GoodsReceipt
+Source: goods_receipts via silver.GoodsReceipt
 
 | Column | From | Transformation |
 |---|---|---|
@@ -328,9 +328,9 @@ Source: goods_receipts via stg.GoodsReceipt
 | SiteKey | site_id | DimSite lookup |
 | LeadTimeDays | po_date, receipt_date | receipt_date - po_date (days) |
 
-## dw.FactSupplierInvoice
+## gold.FactSupplierInvoice
 
-Source: supplier_invoices via stg.SupplierInvoice
+Source: supplier_invoices via silver.SupplierInvoice
 
 | Column | From | Transformation |
 |---|---|---|
@@ -338,19 +338,19 @@ Source: supplier_invoices via stg.SupplierInvoice
 | InvoiceID | invoice_id | Business key |
 | POID | po_id | Copied |
 | InvoiceDateKey | invoice_date | YYYYMMDD |
-| DueDateKey | invoice_date, dw.DimSupplier.PaymentTermsDays | invoice_date + supplier payment terms |
+| DueDateKey | invoice_date, gold.DimSupplier.PaymentTermsDays | invoice_date + supplier payment terms |
 | SupplierKey | supplier_id | Current DimSupplier version |
 | InvoiceStatus | status | Copied |
 | NetAmount | net_amount | Copied |
 | VATAmount | vat_amount | Copied |
 | TotalAmount | total_amount | Copied |
-| PaymentTermsDays | dw.DimSupplier.PaymentTermsDays | Supplier's current payment terms |
+| PaymentTermsDays | gold.DimSupplier.PaymentTermsDays | Supplier's current payment terms |
 | OrderedValue | purchase_orders.po_value | Value of the related PO |
 | InvoiceToOrderVariance | net_amount, po_value | net_amount - po_value |
 
-## dw.FactSupplierRebate
+## gold.FactSupplierRebate
 
-Source: supplier_rebates via stg.SupplierRebate
+Source: supplier_rebates via silver.SupplierRebate
 
 | Column | From | Transformation |
 |---|---|---|
@@ -366,9 +366,9 @@ Source: supplier_rebates via stg.SupplierRebate
 | ExpectedRebateAmount | qualifying_spend | qualifying_spend x expected rate |
 | RebateVariance | rebate_amount | RebateAmount - ExpectedRebateAmount |
 
-## dw.FactGeneralLedger
+## gold.FactGeneralLedger
 
-Source: general_ledger via stg.GeneralLedger
+Source: general_ledger via silver.GeneralLedger
 
 | Column | From | Transformation |
 |---|---|---|
@@ -384,9 +384,9 @@ Source: general_ledger via stg.GeneralLedger
 | CreditAmount | credit | Copied (blank = 0) |
 | NetAmount | debit, credit | debit - credit |
 
-## dw.FactOperatingExpense
+## gold.FactOperatingExpense
 
-Source: operating_expenses via stg.OperatingExpense
+Source: operating_expenses via silver.OperatingExpense
 
 | Column | From | Transformation |
 |---|---|---|
@@ -399,22 +399,22 @@ Source: operating_expenses via stg.OperatingExpense
 | ExpenseDescription | description | Copied |
 | Amount | amount | Copied |
 
-## dw.FactAssetDepreciation
+## gold.FactAssetDepreciation
 
-Source: fixed_assets_erp via stg.FixedAsset
+Source: fixed_assets_erp via silver.FixedAsset
 
 | Column | From | Transformation |
 |---|---|---|
-| AssetKey | dw.DimAsset | Copied |
-| PeriodEndDateKey | dw.DimDate | Each month end after acquisition until fully depreciated or the as-at date |
-| SiteKey | dw.DimAsset.SiteID | DimSite lookup |
-| DepreciationAmount | dw.DimAsset.MonthlyDepreciation | Monthly straight-line amount; final month absorbs rounding |
-| AccumulatedDepreciation | dw.DimAsset | Running total capped at acquisition cost |
-| NetBookValue | dw.DimAsset.AcquisitionCost | AcquisitionCost - AccumulatedDepreciation |
+| AssetKey | gold.DimAsset | Copied |
+| PeriodEndDateKey | gold.DimDate | Each month end after acquisition until fully depreciated or the as-at date |
+| SiteKey | gold.DimAsset.SiteID | DimSite lookup |
+| DepreciationAmount | gold.DimAsset.MonthlyDepreciation | Monthly straight-line amount; final month absorbs rounding |
+| AccumulatedDepreciation | gold.DimAsset | Running total capped at acquisition cost |
+| NetBookValue | gold.DimAsset.AcquisitionCost | AcquisitionCost - AccumulatedDepreciation |
 
-## dw.FactBranchCashup
+## gold.FactBranchCashup
 
-Source: branch_cashup via stg.BranchCashup
+Source: branch_cashup via silver.BranchCashup
 
 | Column | From | Transformation |
 |---|---|---|
@@ -438,7 +438,7 @@ Source: branch_cashup via stg.BranchCashup
 | ManagerApproval | manager_approval | Copied |
 | SourceFile | file name | Cash-up document file name |
 
-## dw.DimPaymentMethod
+## gold.DimPaymentMethod
 
 Source: None via sql/017_warehouse_dimensions.sql
 

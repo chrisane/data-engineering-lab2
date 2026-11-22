@@ -85,7 +85,7 @@ def run_generic_staging(context) -> HandlerResult:
 
 def run_reference_accounts(context) -> HandlerResult:
     """
-    Load config/chart_of_accounts.csv into stg.ChartOfAccounts.
+    Load config/chart_of_accounts.csv into silver.ChartOfAccounts.
 
     Reference data maintained under version control: the batch ID is
     derived from the file hash, so an unchanged file is never staged twice.
@@ -123,7 +123,7 @@ def run_reference_accounts(context) -> HandlerResult:
     try:
         cursor = connection.cursor()
         cursor.execute(
-            "SELECT COUNT(*) FROM stg.ChartOfAccounts WHERE IngestionRunID = ? AND SourceFileHash = ?",
+            "SELECT COUNT(*) FROM silver.ChartOfAccounts WHERE IngestionRunID = ? AND SourceFileHash = ?",
             run_id,
             digest,
         )
@@ -132,7 +132,7 @@ def run_reference_accounts(context) -> HandlerResult:
         if already == 0:
             cursor.fast_executemany = True
             cursor.executemany(
-                "INSERT INTO stg.ChartOfAccounts (account_code, account_name, account_type, "
+                "INSERT INTO silver.ChartOfAccounts (account_code, account_name, account_type, "
                 "financial_statement, normal_balance, IngestionRunID, SourceFile, SourceRowNumber, "
                 "SourceFileHash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
@@ -152,7 +152,7 @@ def run_reference_accounts(context) -> HandlerResult:
             )
         elif already != len(rows):
             raise HandlerError(
-                f"stg.ChartOfAccounts holds {already} rows of this version but the file has {len(rows)}."
+                f"silver.ChartOfAccounts holds {already} rows of this version but the file has {len(rows)}."
             )
 
         # Record the reference batch so the warehouse procedure can find it.
@@ -187,7 +187,7 @@ def run_reference_accounts(context) -> HandlerResult:
             0 if already else len(rows),
             None if already == 0 else "Already staged; row count matches the file.",
             context.pipeline_id,
-            "stg.ChartOfAccounts",
+            "silver.ChartOfAccounts",
         )
         connection.commit()
 
@@ -203,7 +203,7 @@ def run_reference_accounts(context) -> HandlerResult:
 
 def run_supplier_scd2(context) -> HandlerResult:
     """
-    Existing supplier SCD2 procedure (dw.usp_LoadDimSupplier). Its own
+    Existing supplier SCD2 procedure (gold.usp_LoadDimSupplier). Its own
     audit (audit.SupplierWarehouseExecution) is mirrored into
     audit.WarehouseExecution so it reconciles like every other target.
     """
@@ -226,7 +226,7 @@ def run_supplier_scd2(context) -> HandlerResult:
             )
         connection.commit()
 
-        cursor.execute("EXEC dw.usp_LoadDimSupplier @IngestionRunID = ?", batch["run_id"])
+        cursor.execute("EXEC gold.usp_LoadDimSupplier @IngestionRunID = ?", batch["run_id"])
         while cursor.nextset():
             pass
         connection.commit()
@@ -245,7 +245,7 @@ def run_supplier_scd2(context) -> HandlerResult:
         cursor.execute(
             "INSERT INTO audit.WarehouseExecution (PipelineExecutionID, MappingCode, TargetTable, SourceName, "
             "IngestionRunID, SourceFileHash, ExecutionStatus, SourceRows, InsertedRows, UpdatedRows, "
-            "UnchangedRows, CompletedAt) VALUES (?, ?, 'dw.DimSupplier', 'supplier_master', ?, ?, ?, ?, ?, ?, ?, "
+            "UnchangedRows, CompletedAt) VALUES (?, ?, 'gold.DimSupplier', 'supplier_master', ?, ?, ?, ?, ?, ?, ?, "
             "SYSUTCDATETIME())",
             context.pipeline_id,
             context.mapping["code"],
@@ -328,46 +328,51 @@ def run_procedure(context) -> HandlerResult:
 
 
 def _procedure(code: str, procedure: str, target: str) -> Handler:
-    return Handler(code, "STORED_PROCEDURE", frozenset({"WAREHOUSE"}), target, procedure, run_procedure)
+    return Handler(code, "STORED_PROCEDURE", frozenset({"GOLD"}), target, procedure, run_procedure)
 
 
 HANDLERS: dict[str, Handler] = {
     handler.code: handler
     for handler in [
-        Handler("GENERIC_STAGING", "PYTHON", frozenset({"STAGING"}), None, None, run_generic_staging),
-        Handler("SUPPLIER_STAGING", "PYTHON", frozenset({"STAGING"}), "stg.Supplier", None, run_generic_staging),
+        Handler("GENERIC_STAGING", "PYTHON", frozenset({"SILVER"}), None, None, run_generic_staging),
+        Handler("SUPPLIER_STAGING", "PYTHON", frozenset({"SILVER"}), "silver.Supplier", None, run_generic_staging),
         Handler(
-            "REFERENCE_ACCOUNTS", "PYTHON", frozenset({"STAGING"}), "stg.ChartOfAccounts", None, run_reference_accounts
+            "REFERENCE_ACCOUNTS",
+            "PYTHON",
+            frozenset({"SILVER"}),
+            "silver.ChartOfAccounts",
+            None,
+            run_reference_accounts,
         ),
-        Handler("SUPPLIER_SCD2", "PYTHON", frozenset({"WAREHOUSE"}), "dw.DimSupplier", None, run_supplier_scd2),
-        _procedure("DIM_DATE", "dw.usp_LoadDimDate", "dw.DimDate"),
-        _procedure("DIM_SITE", "dw.usp_LoadDimSite", "dw.DimSite"),
-        _procedure("DIM_DEPARTMENT", "dw.usp_LoadDimDepartment", "dw.DimDepartment"),
-        _procedure("DIM_PRODUCT", "dw.usp_LoadDimProduct", "dw.DimProduct"),
-        _procedure("DIM_CUSTOMER", "dw.usp_LoadDimCustomer", "dw.DimCustomer"),
-        _procedure("DIM_ACCOUNT", "dw.usp_LoadDimAccount", "dw.DimAccount"),
-        _procedure("DIM_ASSET", "dw.usp_LoadDimAsset", "dw.DimAsset"),
-        _procedure("DIM_LOCAL_ASSET", "dw.usp_LoadDimLocalAsset", "dw.DimLocalAsset"),
-        _procedure("FACT_SALES", "dw.usp_LoadFactSales", "dw.FactSales"),
-        _procedure("FACT_SALES_LINE", "dw.usp_LoadFactSalesLine", "dw.FactSalesLine"),
-        _procedure("FACT_INVENTORY_MOVEMENT", "dw.usp_LoadFactInventoryMovement", "dw.FactInventoryMovement"),
-        _procedure("FACT_INVENTORY_SNAPSHOT", "dw.usp_BuildFactInventorySnapshot", "dw.FactInventorySnapshot"),
-        _procedure("FACT_PURCHASE_ORDER", "dw.usp_LoadFactPurchaseOrder", "dw.FactPurchaseOrder"),
-        _procedure("FACT_PURCHASE_ORDER_LINE", "dw.usp_LoadFactPurchaseOrderLine", "dw.FactPurchaseOrderLine"),
-        _procedure("FACT_GOODS_RECEIPT", "dw.usp_LoadFactGoodsReceipt", "dw.FactGoodsReceipt"),
-        _procedure("FACT_SUPPLIER_INVOICE", "dw.usp_LoadFactSupplierInvoice", "dw.FactSupplierInvoice"),
-        _procedure("FACT_SUPPLIER_REBATE", "dw.usp_LoadFactSupplierRebate", "dw.FactSupplierRebate"),
-        _procedure("FACT_GENERAL_LEDGER", "dw.usp_LoadFactGeneralLedger", "dw.FactGeneralLedger"),
-        _procedure("FACT_OPERATING_EXPENSE", "dw.usp_LoadFactOperatingExpense", "dw.FactOperatingExpense"),
-        _procedure("FACT_ASSET_DEPRECIATION", "dw.usp_BuildFactAssetDepreciation", "dw.FactAssetDepreciation"),
-        _procedure("FACT_BRANCH_CASHUP", "dw.usp_LoadFactBranchCashup", "dw.FactBranchCashup"),
-        _procedure("BRIDGE_PRODUCT_SUPPLIER", "dw.usp_LoadBridgeProductSupplier", "dw.BridgeProductSupplier"),
+        Handler("SUPPLIER_SCD2", "PYTHON", frozenset({"GOLD"}), "gold.DimSupplier", None, run_supplier_scd2),
+        _procedure("DIM_DATE", "gold.usp_LoadDimDate", "gold.DimDate"),
+        _procedure("DIM_SITE", "gold.usp_LoadDimSite", "gold.DimSite"),
+        _procedure("DIM_DEPARTMENT", "gold.usp_LoadDimDepartment", "gold.DimDepartment"),
+        _procedure("DIM_PRODUCT", "gold.usp_LoadDimProduct", "gold.DimProduct"),
+        _procedure("DIM_CUSTOMER", "gold.usp_LoadDimCustomer", "gold.DimCustomer"),
+        _procedure("DIM_ACCOUNT", "gold.usp_LoadDimAccount", "gold.DimAccount"),
+        _procedure("DIM_ASSET", "gold.usp_LoadDimAsset", "gold.DimAsset"),
+        _procedure("DIM_LOCAL_ASSET", "gold.usp_LoadDimLocalAsset", "gold.DimLocalAsset"),
+        _procedure("FACT_SALES", "gold.usp_LoadFactSales", "gold.FactSales"),
+        _procedure("FACT_SALES_LINE", "gold.usp_LoadFactSalesLine", "gold.FactSalesLine"),
+        _procedure("FACT_INVENTORY_MOVEMENT", "gold.usp_LoadFactInventoryMovement", "gold.FactInventoryMovement"),
+        _procedure("FACT_INVENTORY_SNAPSHOT", "gold.usp_BuildFactInventorySnapshot", "gold.FactInventorySnapshot"),
+        _procedure("FACT_PURCHASE_ORDER", "gold.usp_LoadFactPurchaseOrder", "gold.FactPurchaseOrder"),
+        _procedure("FACT_PURCHASE_ORDER_LINE", "gold.usp_LoadFactPurchaseOrderLine", "gold.FactPurchaseOrderLine"),
+        _procedure("FACT_GOODS_RECEIPT", "gold.usp_LoadFactGoodsReceipt", "gold.FactGoodsReceipt"),
+        _procedure("FACT_SUPPLIER_INVOICE", "gold.usp_LoadFactSupplierInvoice", "gold.FactSupplierInvoice"),
+        _procedure("FACT_SUPPLIER_REBATE", "gold.usp_LoadFactSupplierRebate", "gold.FactSupplierRebate"),
+        _procedure("FACT_GENERAL_LEDGER", "gold.usp_LoadFactGeneralLedger", "gold.FactGeneralLedger"),
+        _procedure("FACT_OPERATING_EXPENSE", "gold.usp_LoadFactOperatingExpense", "gold.FactOperatingExpense"),
+        _procedure("FACT_ASSET_DEPRECIATION", "gold.usp_BuildFactAssetDepreciation", "gold.FactAssetDepreciation"),
+        _procedure("FACT_BRANCH_CASHUP", "gold.usp_LoadFactBranchCashup", "gold.FactBranchCashup"),
+        _procedure("BRIDGE_PRODUCT_SUPPLIER", "gold.usp_LoadBridgeProductSupplier", "gold.BridgeProductSupplier"),
         Handler(
-            "MART_REPLENISHMENT_PLAN",
+            "PRESENTATION_REPLENISHMENT_PLAN",
             "STORED_PROCEDURE",
-            frozenset({"MART"}),
-            "mart.ReplenishmentPlan",
-            "mart.usp_BuildReplenishmentPlan",
+            frozenset({"PRESENTATION"}),
+            "presentation.ReplenishmentPlan",
+            "presentation.usp_BuildReplenishmentPlan",
             run_procedure,
         ),
     ]

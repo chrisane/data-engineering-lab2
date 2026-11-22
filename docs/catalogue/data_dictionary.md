@@ -4,7 +4,7 @@
 
 Business definitions, staging types and validation rules of every source column. Personal data is classified CONFIDENTIAL or RESTRICTED and masked in the warehouse.
 
-## site_master (stg.Site)
+## site_master (silver.Site)
 
 Domain: Organisation. Head office, distribution centre and branch locations.
 
@@ -15,7 +15,7 @@ Domain: Organisation. Head office, distribution centre and branch locations.
 | town | Namibian town where the party or site is located. | NVARCHAR(255) | Yes |  | INTERNAL |  |
 | site_type | Role of the site: HEAD_OFFICE, DISTRIBUTION_CENTRE or BRANCH. | NVARCHAR(255) | No |  | INTERNAL | Required; One of ['HEAD_OFFICE', 'DISTRIBUTION_CENTRE', 'BRANCH'] |
 
-## department_master (stg.Department)
+## department_master (silver.Department)
 
 Domain: Organisation. Organisational departments.
 
@@ -24,7 +24,7 @@ Domain: Organisation. Organisational departments.
 | department_id | Code of the organisational department (D###). | NVARCHAR(50) | No | Yes | INTERNAL | Required; Unique; Matches ^D\d{3}$ |
 | department_name | Name of the department (for example Finance, Procurement). | NVARCHAR(255) | No |  | INTERNAL | Required |
 
-## product_master (stg.Product)
+## product_master (silver.Product)
 
 Domain: Merchandise. Products, categories, standard cost and selling price.
 
@@ -37,7 +37,7 @@ Domain: Merchandise. Products, categories, standard cost and selling price.
 | selling_price | Standard selling price per unit in NAD, excluding VAT. | DECIMAL(19, 6) | No |  | INTERNAL | Required; Number >= 0 |
 | dc_stocked | True when the product is held at the central distribution centre and replenished to branches; false when bought directly from suppliers. | BIT | Yes |  | INTERNAL | One of [True, False] |
 
-## supplier_master (stg.Supplier)
+## supplier_master (silver.Supplier)
 
 Domain: Procurement. Suppliers, minimum order values, rebate rates and payment terms.
 
@@ -50,7 +50,7 @@ Domain: Procurement. Suppliers, minimum order values, rebate rates and payment t
 | rebate_rate | Contractual base rebate rate as a fraction (0.02 = 2%). | DECIMAL(19, 6) | Yes |  | CONFIDENTIAL | Number >= 0 <= 1 |
 | payment_terms_days | Days after the invoice date by which the supplier must be paid. | INT | Yes |  | CONFIDENTIAL | Whole number >= 0 |
 
-## product_supplier (stg.ProductSupplier)
+## product_supplier (silver.ProductSupplier)
 
 Domain: Procurement. Approved suppliers per product and their unit costs.
 
@@ -60,7 +60,7 @@ Domain: Procurement. Approved suppliers per product and their unit costs.
 | supplier_id | Code of the supplier (SUP####). | NVARCHAR(50) | No | Yes | CONFIDENTIAL | Required; Unique with product_id; Must exist in supplier_master.supplier_id |
 | supplier_unit_cost | Price per unit agreed with this supplier for this product (NAD, excl. VAT). | DECIMAL(19, 6) | No |  | CONFIDENTIAL | Required; Number >= 0 |
 
-## customer_master (stg.Customer)
+## customer_master (silver.Customer)
 
 Domain: Sales. Retail and business customers with credit limits.
 
@@ -72,7 +72,7 @@ Domain: Sales. Retail and business customers with credit limits.
 | town | Namibian town where the party or site is located. | NVARCHAR(255) | Yes |  | RESTRICTED (personal) |  |
 | credit_limit | Maximum outstanding account balance allowed (NAD); 0 = no credit facility. | DECIMAL(19, 6) | Yes |  | RESTRICTED | Number >= 0 |
 
-## purchase_orders (stg.PurchaseOrder)
+## purchase_orders (silver.PurchaseOrder)
 
 Domain: Procurement. Purchase order headers raised by the distribution centre.
 
@@ -85,7 +85,7 @@ Domain: Procurement. Purchase order headers raised by the distribution centre.
 | po_value | Total order value in NAD excluding VAT (sum of its lines). | DECIMAL(19, 6) | No |  | CONFIDENTIAL | Required; Number >= 0 |
 | status | Lifecycle status of the record in the source system. | NVARCHAR(255) | No |  | CONFIDENTIAL | Required; One of ['DRAFT', 'APPROVED', 'RECEIVED', 'CLOSED', 'CANCELLED'] |
 
-## purchase_order_lines (stg.PurchaseOrderLine)
+## purchase_order_lines (silver.PurchaseOrderLine)
 
 Domain: Procurement. Products, quantities and costs per purchase order.
 
@@ -97,7 +97,7 @@ Domain: Procurement. Products, quantities and costs per purchase order.
 | unit_cost | Cost price per unit in NAD, excluding VAT. | DECIMAL(19, 6) | No |  | CONFIDENTIAL | Required; Number >= 0 |
 | line_value | Line value in NAD excluding VAT (quantity x unit cost). | DECIMAL(19, 6) | No |  | CONFIDENTIAL | Required; Number >= 0; = quantity * unit_cost |
 
-## goods_receipts (stg.GoodsReceipt)
+## goods_receipts (silver.GoodsReceipt)
 
 Domain: Procurement. Goods received against purchase orders.
 
@@ -109,7 +109,7 @@ Domain: Procurement. Goods received against purchase orders.
 | receipt_date | Date the goods were received at the site. | DATE | No |  | INTERNAL | Required; Valid date |
 | site_id | Site that received the goods. | NVARCHAR(50) | No |  | INTERNAL | Required; Must exist in site_master.site_id |
 
-## supplier_invoices (stg.SupplierInvoice)
+## supplier_invoices (silver.SupplierInvoice)
 
 Domain: Finance. Accounts payable supplier invoices.
 
@@ -124,7 +124,7 @@ Domain: Finance. Accounts payable supplier invoices.
 | total_amount | Amount in NAD including VAT (net + VAT). | DECIMAL(19, 6) | No |  | CONFIDENTIAL | Required; Number >= 0; = net_amount + vat_amount |
 | status | Payment status of the invoice (OPEN, PAID, PARTIALLY_PAID, CANCELLED). | NVARCHAR(255) | No |  | CONFIDENTIAL | Required; One of ['OPEN', 'PAID', 'PARTIALLY_PAID', 'CANCELLED'] |
 
-## supplier_rebates (stg.SupplierRebate)
+## supplier_rebates (silver.SupplierRebate)
 
 Domain: Procurement. Quarterly supplier rebates earned on qualifying spend.
 
@@ -136,7 +136,7 @@ Domain: Procurement. Quarterly supplier rebates earned on qualifying spend.
 | rebate_rate | Rebate rate earned for the period (from the quarterly thresholds). | NVARCHAR(255) | No |  | CONFIDENTIAL | Required; One of [0, 0.01, 0.02, 0.035] |
 | rebate_amount | Rebate earned for the period in NAD (qualifying spend x rate). | DECIMAL(19, 6) | No |  | CONFIDENTIAL | Required; Number >= 0; = qualifying_spend * rebate_rate |
 
-## sales_transactions (stg.SalesTransaction)
+## sales_transactions (silver.SalesTransaction)
 
 Domain: Sales. Branch sales headers with payment method and totals.
 
@@ -151,7 +151,7 @@ Domain: Sales. Branch sales headers with payment method and totals.
 | vat_amount | Value-added tax in NAD at the company VAT rate (15%). | DECIMAL(19, 6) | No |  | CONFIDENTIAL | Required; Number >= 0; = net_amount * 0.15 |
 | total_amount | Amount in NAD including VAT (net + VAT). | DECIMAL(19, 6) | No |  | CONFIDENTIAL | Required; Number >= 0; = net_amount + vat_amount |
 
-## sales_lines (stg.SalesLine)
+## sales_lines (silver.SalesLine)
 
 Domain: Sales. Products, quantities and prices per sale.
 
@@ -164,7 +164,7 @@ Domain: Sales. Products, quantities and prices per sale.
 | line_net | Line amount excluding VAT (quantity x unit price). | DECIMAL(19, 6) | No |  | CONFIDENTIAL | Required; Number >= 0; = quantity * unit_price |
 | unit_cost | Cost per unit at the time of sale (NAD), used for cost of sales. | DECIMAL(19, 6) | No |  | CONFIDENTIAL | Required; Number >= 0 |
 
-## inventory_movements (stg.InventoryMovement)
+## inventory_movements (silver.InventoryMovement)
 
 Domain: Inventory. Stock receipts and sales movements per site and product.
 
@@ -179,7 +179,7 @@ Domain: Inventory. Stock receipts and sales movements per site and product.
 | unit_cost | Cost price per unit in NAD, excluding VAT. | DECIMAL(19, 6) | No |  | INTERNAL | Required; Number >= 0 |
 | source_document_id | Document that caused the movement (purchase order, sale, transfer or adjustment reference). | NVARCHAR(50) | No |  | INTERNAL | Required |
 
-## operating_expenses (stg.OperatingExpense)
+## operating_expenses (silver.OperatingExpense)
 
 Domain: Finance. Rent, utilities, connectivity and other operating costs per site.
 
@@ -192,7 +192,7 @@ Domain: Finance. Rent, utilities, connectivity and other operating costs per sit
 | description | Free-text description entered in the source system. | NVARCHAR(255) | Yes |  | CONFIDENTIAL |  |
 | amount | Expense amount in NAD. | DECIMAL(19, 6) | No |  | CONFIDENTIAL | Required; Number >= 0 |
 
-## general_ledger (stg.GeneralLedger)
+## general_ledger (silver.GeneralLedger)
 
 Domain: Finance. General ledger journal lines derived from source transactions.
 
@@ -207,7 +207,7 @@ Domain: Finance. General ledger journal lines derived from source transactions.
 | debit | Debit amount in NAD (blank or 0 for a credit line). | DECIMAL(19, 6) | Yes |  | CONFIDENTIAL | Number >= 0 |
 | credit | Credit amount in NAD (blank or 0 for a debit line). | DECIMAL(19, 6) | Yes |  | CONFIDENTIAL | Number >= 0 |
 
-## fixed_assets_erp (stg.FixedAsset)
+## fixed_assets_erp (silver.FixedAsset)
 
 Domain: Assets. Capitalised assets with cost, depreciation and net book value.
 
@@ -224,7 +224,7 @@ Domain: Assets. Capitalised assets with cost, depreciation and net book value.
 | net_book_value | Cost less accumulated depreciation as reported by the ERP register. | DECIMAL(19, 6) | Yes |  | CONFIDENTIAL | Number >= 0; = acquisition_cost - accumulated_depreciation |
 | status | Asset status (ACTIVE, DISPOSED, WRITTEN_OFF). | NVARCHAR(255) | No |  | CONFIDENTIAL | Required; One of ['ACTIVE', 'DISPOSED', 'WRITTEN_OFF'] |
 
-## branch_local_assets (stg.BranchLocalAsset)
+## branch_local_assets (silver.BranchLocalAsset)
 
 Domain: Assets. Small assets below the capitalisation threshold, kept by branches.
 
@@ -238,7 +238,7 @@ Domain: Assets. Small assets below the capitalisation threshold, kept by branche
 | assigned_to | Employee the asset is assigned to. CONFIDENTIAL: personal data. | NVARCHAR(255) | Yes |  | CONFIDENTIAL (personal) |  |
 | recorded_date | Date the asset was recorded in the branch register. | DATE | Yes |  | CONFIDENTIAL | Valid date |
 
-## branch_cashup (stg.BranchCashup)
+## branch_cashup (silver.BranchCashup)
 
 Domain: Cash Management. End-of-shift branch cash-up reports.
 
@@ -263,7 +263,7 @@ Domain: Cash Management. End-of-shift branch cash-up reports.
 | manager_approval | Manager approval status of the cash-up. | NVARCHAR(255) | Yes |  | CONFIDENTIAL | One of ['Approved'] |
 | template_version | Registered cash-up layout the document was read with (see extraction.templates in the source registry). | NVARCHAR(50) | Yes |  | CONFIDENTIAL |  |
 
-## chart_of_accounts (stg.ChartOfAccounts)
+## chart_of_accounts (silver.ChartOfAccounts)
 
 Domain: Finance. Chart of accounts reference data.
 

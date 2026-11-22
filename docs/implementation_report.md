@@ -11,7 +11,7 @@ exercised in its target environment**, and what is **designed or documented only
 | Suite | Result | Command |
 |---|---|---|
 | Unit, configuration, negative, regression, SQL standards (no database) | **332 passed** | `python -m pytest tests` |
-| Integration on a fresh SQL Server database (`RetailDataPlatform_IT`) | **16 passed** (15 in the full 21-minute run; the lineage test failed on `dw.DimPaymentMethod`, was fixed and re-run with the schema tests: 3 passed) | `python -m pytest tests/integration -m integration -v` |
+| Integration on a fresh SQL Server database (`RetailDataPlatform_IT`) | **16 passed** (15 in the full 21-minute run; the lineage test failed on `gold.DimPaymentMethod`, was fixed and re-run with the schema tests: 3 passed) | `python -m pytest tests/integration -m integration -v` |
 | Lint / format | ruff: no findings; 51 files formatted | `ruff check .` / `ruff format --check .` |
 | Static security | bandit: no issues (3 reviewed `except: pass` cleanups annotated) | `bandit -q -c pyproject.toml -r src scripts` |
 | Dependency vulnerabilities | pip-audit: no known vulnerabilities | `pip-audit -r requirements.txt` |
@@ -31,7 +31,7 @@ runs are abandoned; report readers see masked personal data and cannot read stag
 
 | Phase | Item | Status |
 |---|---|---|
-| A | Supplier reconciliation as a mandatory post-load gate | Done (`DW_DIM_SUPPLIER.SUPPLIER_RECONCILIATION`, CRITICAL) |
+| A | Supplier reconciliation as a mandatory post-load gate | Done (`GOLD_DIM_SUPPLIER.SUPPLIER_RECONCILIATION`, CRITICAL) |
 | A | Approved reconciliation handlers, configurable severity and tolerance | Done (10 control types, 129 controls; non-zero tolerances must be justified) |
 | A | Mandatory failures fail the pipeline | Done (tested) |
 | A | Source-to-staging row counts, hash and version lineage, staged-vs-transformed | Done (ROW_COUNT, HASH_LINEAGE, WAREHOUSE_AUDIT, KEY_COVERAGE, MEASURE_TOTAL) |
@@ -41,7 +41,7 @@ runs are abandoned; report readers see masked personal data and cannot read stag
 | C | All 19 sources staged, warehoused, reconciled, tested; Excel and PDF | Done |
 | C | Generator extended deliberately (transfers, opening stock, consistent cash-ups) | Done and documented; legacy cash-ups withdrawn, not deleted |
 | D | Star schema: 9 dimensions + bridge, 13 facts with declared grains, SCD1/SCD2, unknown members, corrections | Done |
-| E | Inventory and replenishment, suppliers and purchasing, finance, assets, cash-ups | Done as mart views (see limitations) |
+| E | Inventory and replenishment, suppliers and purchasing, finance, assets, cash-ups | Done as presentation views (see limitations) |
 | F | DQ dimensions, severity, actionable reports, data dictionary, catalogue, end-to-end lineage | Done |
 | G | Single command, dependency-aware, incremental/idempotent, transactional, retry, cancellation, scheduling, history, alert-ready health, retention | Done (scheduling script provided, not registered on this machine) |
 | H | Lint, format, static analysis, SQL standards, unit/integration/DQ/reconciliation/SCD2/negative/regression tests, config and dependency validation, security checks, migration controls, CI | Done locally; GitHub Actions configured but **not yet run in GitHub** |
@@ -65,10 +65,10 @@ Run on the real `RetailDataPlatform` database (2026-10-11, pipeline execution 4)
 | Replenishment plan | 1,365 site/product rows: 28 REORDER, 19 EXCESS, 2 SLOW_MOVING, 1,316 OK; DC has no REORDER lines, so the supplier reorder proposal is empty for this data set |
 | Full pipeline exit code | 1 (WARNING) by design: the blocked cash-up is a warning, not a failure |
 
-**Performance fix (027).** `mart.vw_ReplenishmentPlan` and `mart.vw_SupplierReorderProposal` took about
-200 s per query through stacked views. Migration 027 materialises the plan in `mart.ReplenishmentPlan`,
-built once per run by `mart.usp_BuildReplenishmentPlan` (mapping `MART_REPLENISHMENT_PLAN`, handler
-`MART_REPLENISHMENT_PLAN`, full refresh, `WAREHOUSE_AUDIT` control, column lineage). The views keep their
+**Performance fix (027).** `presentation.vw_ReplenishmentPlan` and `presentation.vw_SupplierReorderProposal` took about
+200 s per query through stacked views. Migration 027 materialises the plan in `presentation.ReplenishmentPlan`,
+built once per run by `presentation.usp_BuildReplenishmentPlan` (mapping `PRESENTATION_REPLENISHMENT_PLAN`, handler
+`PRESENTATION_REPLENISHMENT_PLAN`, full refresh, `WAREHOUSE_AUDIT` control, column lineage). The views keep their
 names and columns and now return in 0.13 s and 0.04 s.
 
 ## Cash-up template versions (2026-10-11)
@@ -77,7 +77,7 @@ Branch cash-ups can arrive on several registered layouts at once (`extraction.te
 registry), so branches can switch templates at different times. Each document's template is detected
 from its `Template Version` label (no label = the default template 1). An unregistered version, or a
 template used after its `accepted_until` date, is blocked with an actionable message. Fields keep their
-canonical names, so staging and the warehouse are unaffected; `stg.BranchCashup.template_version`
+canonical names, so staging and the warehouse are unaffected; `silver.BranchCashup.template_version`
 (migration 028) records the layout used.
 
 Tested: 10 unit tests (`tests/test_cashup_templates.py`) on real PDFs, covering both templates to the
@@ -120,7 +120,7 @@ Gate (100 eligible, 1 blocked), coverage and health were identical in both runs.
 5. **Retention periods** are draft assumptions to be confirmed against Namibian legal and tax rules.
 6. **Performance**: on this 7.5 GB machine SQL Server waits for memory grants on the 122k-row ledger and
    139k-row inventory loads (a full first load took ~20 minutes in the integration run, ~3.5 minutes when
-   memory was free). `mart.vw_BalanceSheetCheck` is correct but takes ~200 s on the full ledger here;
+   memory was free). `presentation.vw_BalanceSheetCheck` is correct but takes ~200 s on the full ledger here;
    it is a candidate for the same materialisation as 027. Acceptable for the lab; production should size
    memory and consider columnstore indexes on the large facts.
 7. **SCD2 effective dates** are load time (sources have no effective dates).
