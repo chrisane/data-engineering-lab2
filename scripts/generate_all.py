@@ -7,7 +7,7 @@ from faker import Faker
 
 from cashup_report import write_cashup_pdf
 
-SEED = 20261004
+SEED = 20261122  # change this to the latest date to generate a new dataset; keep it fixed for reproducible results
 random.seed(SEED)
 np.random.seed(SEED)
 fake = Faker("en_US")
